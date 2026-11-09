@@ -8,7 +8,12 @@
   const f1 = x => (x == null || isNaN(x)) ? '-' : (Math.round(x * 10) / 10).toFixed(1);
   const f0 = x => (x == null || isNaN(x)) ? '-' : Math.round(x).toString();
   const dt = ts => ts ? new Date(ts * 1000).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-';
-  const MODE_NAMES = { ranked: 'рейтинг', normal: 'обычные', turbo: 'турбо' };
+  const games = n => { const a = n % 10, b = n % 100; return n + ' ' + (b >= 11 && b <= 14 ? 'игр' : a === 1 ? 'игра' : a >= 2 && a <= 4 ? 'игры' : 'игр'); };
+  const diff = (wr, base) => { const d = Math.round((wr - base) * 100); return (d > 0 ? '+' : '') + d; };
+  const points = n => { const a = n % 10, b = n % 100; return n + ' ' + (b >= 11 && b <= 14 ? 'пунктов' : a === 1 ? 'пункт' : a >= 2 && a <= 4 ? 'пункта' : 'пунктов'); };
+  const diffWords = (wr, base) => { const d = Math.round((wr - base) * 100); return d === 0 ? 'как обычно' : `на ${points(Math.abs(d))} ${d > 0 ? 'выше' : 'ниже'} обычного`; };
+  const CURIOSITY = new Set(['Час старта', 'День недели', 'Сторона карты', 'Номер игры в сессии', 'По длительности игры']);
+  const MODE_NAMES = { ranked: 'Рейтинг', normal: 'Обычные', turbo: 'Турбо' };
   const LANE = { 1: 'сейфлейн', 2: 'мид', 3: 'оффлейн', 4: 'лес' };
   const SLOT = ['s1', 's2', 's3', 's4', 's5'];
 
@@ -18,6 +23,15 @@
   // ---------- математика ----------
   function wilson(w, n, z) { z = z || 1.96; if (!n) return [0, 0, 0]; const p = w / n, den = 1 + z * z / n, c = p + z * z / (2 * n), adj = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)); return [p, (c - adj) / den, (c + adj) / den]; }
   const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  // Надежность среза одним словом: p - вероятность, что разница случайна; n - число игр.
+  function reli(r) {
+    if (r.n < 10) return { label: 'мало игр', cls: 'muted-chip', title: 'Меньше 10 игр - это догадка, а не закономерность' };
+    if (r.p == null) return null;
+    if (r.p < 0.01 && r.n >= 15) return { label: 'надежно', cls: 'good', title: 'Такая разница случайно возникает реже, чем в 1 случае из 100 (p=' + r.p.toFixed(3) + ')' };
+    if (r.p < 0.05) return { label: 'возможно', cls: 'warn', title: 'Разница заметная, но может быть случайной (p=' + r.p.toFixed(3) + ')' };
+    return { label: 'случайность', cls: 'muted-chip', title: 'Разница в пределах случайного разброса (p=' + r.p.toFixed(2) + ')' };
+  }
+  const reliChip = r => { const x = reli(r); return x ? ` <span class="chip ${x.cls}" title="${esc(x.title)}">${x.label}</span>` : ''; };
 
   // ---------- загрузка ----------
   async function getJSON(url, optional) {
@@ -35,7 +49,7 @@
         state.narrative[p.account_id] = await getJSON(`data/narrative/${p.account_id}.json`, true);
         state.reviews[p.account_id] = (await getJSON(`data/${p.account_id}/reviews.json`, true)) || [];
       }));
-    } catch (e) { $('#app').innerHTML = `<p class="no">Не удалось загрузить данные: ${esc(e.message)}</p>`; return; }
+    } catch (e) { $('#app').innerHTML = `<p class="no">Не удалось загрузить данные: ${esc(e.message)}. Обнови страницу через минуту.</p>`; return; }
     try { const t = localStorage.getItem('dc-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) { }
     $('#themeBtn').addEventListener('click', () => {
       const cur = document.documentElement.getAttribute('data-theme');
@@ -53,56 +67,53 @@
   function heroName(id) { const h = state.heroes[String(id)]; return h && h.name ? h.name : ('#' + id); }
   function renderNav() {
     const nav = $('#nav'); nav.innerHTML = '';
-    state.players.forEach(p => nav.appendChild(el('button', { class: 'tab' + (p.exposed ? '' : ' off'), 'data-slug': p.slug, type: 'button', title: p.exposed ? '' : 'статистика закрыта' }, esc(p.name))));
+    state.players.forEach(p => nav.appendChild(el('button', { class: 'tab' + (p.exposed ? '' : ' off'), 'data-slug': p.slug, type: 'button', title: p.exposed ? '' : 'статистика закрыта в настройках Dota 2' }, esc(p.name))));
     nav.appendChild(el('button', { class: 'tab', 'data-slug': 'compare', type: 'button' }, 'Сравнение'));
     nav.appendChild(el('button', { class: 'tab', 'data-slug': 'match', type: 'button' }, 'Разбор матча'));
     nav.addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) location.hash = b.dataset.slug; });
   }
   function renderFooter() {
     const m = state.meta;
-    $('#foot').innerHTML = `<p>Данные: открытая статистика OpenDota (история матчей, агрегаты, разобранные реплеи). Обновляется автоматически через GitHub Actions; последнее обновление ${esc(new Date(m.updated * 1000).toLocaleString('ru-RU'))}. Режимы не смешиваются. Доверительные интервалы - Вилсона 95%, тест на случайность - точный тест Фишера; «надежно» - p &lt; 0.01 при 15+ играх, меньше 10 игр - догадка.</p><p>Методика: atlasagents.uk/g/dota-coach.md. Числа считает код (pipeline/analyze.py), текст тренера - отдельно.</p>`;
+    $('#foot').innerHTML = `<p>Все цифры - из открытой статистики OpenDota, обновляются сами каждые 3 часа; последнее обновление ${esc(new Date(m.updated * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}. Рейтинг, обычные и турбо никогда не смешиваются. Числа считает код, тексты тренера пишет модель по этим числам - ей запрещено их придумывать.</p><p>Методика разбора: atlasagents.uk/g/dota-coach.md.</p>`;
   }
   function route() {
     state.charts.forEach(c => { try { c.destroy(); } catch (e) { } }); state.charts = [];
     const h = (location.hash || '').replace('#', '');
     const slug = state.players.some(p => p.slug === h) ? h : (h === 'compare' ? 'compare' : (h.startsWith('match') ? 'match' : state.players[0].slug));
-    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.slug === slug)));
+    document.querySelectorAll('.tab').forEach(t => { const on = t.dataset.slug === slug; t.setAttribute('aria-selected', String(on)); if (on && t.scrollIntoView) t.scrollIntoView({ inline: 'center', block: 'nearest' }); });
     const app = $('#app'); app.innerHTML = '';
     if (slug === 'compare') renderCompare(app); else if (slug === 'match') { if (window.renderMatch) window.renderMatch(app); } else renderPlayer(app, state.players.find(p => p.slug === slug));
     window.scrollTo(0, 0);
   }
 
   // ---------- общие куски ----------
-  function tile(label, value, note) { return `<div class="tile"><div class="tile-label">${esc(label)}</div><div class="tile-value">${value}</div><div class="tile-note">${esc(note || '')}</div></div>`; }
+  function tile(label, value, note, hint) { return `<div class="tile"${hint ? ` title="${esc(hint)}"` : ''}><div class="tile-label">${esc(label)}</div><div class="tile-value">${value}</div><div class="tile-note">${esc(note || '')}</div></div>`; }
   function barRow(label, wr, lo, hi, n, base, opts) {
     opts = opts || {};
-    const chip = opts.tag ? ` <span class="chip ${opts.tagCls || ''}">${esc(opts.tag)}</span>` : '';
-    const note = opts.note ? ' · ' + esc(opts.note) : '';
-    return `<div class="brow"><div class="blabel">${label}${chip}</div>` +
-      `<div class="btrack" title="${pct(wr)}, ${n} игр, 95% ДИ ${pct(lo)}-${pct(hi)}"><div class="bfill ${opts.cls || 's1'}" style="width:${(wr * 100).toFixed(1)}%"></div>` +
+    const tag = opts.tag ? ` <span class="chip ${opts.tagCls || ''}">${esc(opts.tag)}</span>` : '';
+    const chip = opts.row ? reliChip(opts.row) : '';
+    return `<div class="brow"><div class="blabel">${label}${tag}</div>` +
+      `<div class="btrack" title="${pct(wr)} побед в ${games(n)}; с поправкой на случайность от ${pct(lo)} до ${pct(hi)}"><div class="bfill ${opts.cls || 's1'}" style="width:${(wr * 100).toFixed(1)}%"></div>` +
       `<div class="bci" style="left:${(lo * 100).toFixed(1)}%;width:${(Math.max(0, hi - lo) * 100).toFixed(1)}%"></div>` +
       (base != null ? `<div class="bbase" style="left:${(base * 100).toFixed(1)}%"></div>` : '') + `</div>` +
-      `<div class="bval"><b>${pct(wr)}</b><span class="bn">${n} игр${note}</span></div></div>`;
+      `<div class="bval"><b>${pct(wr)}</b><span class="bn">${games(n)}${chip}</span></div></div>`;
   }
-  function pNote(r) { if (r.p == null) return ''; return 'p=' + r.p.toFixed(3) + ((r.p < 0.01 && r.n >= 15) ? ' надежно' : (r.p < 0.05 ? ' слабый сигнал' : '')); }
   function barsFromTable(t, order) {
     let rows = t.rows.slice(); if (order) rows.sort((a, b) => (order.indexOf(a.group) + 99) % 99 - (order.indexOf(b.group) + 99) % 99);
-    return rows.map(r => barRow(esc(r.group) + (r.n < 10 ? ' <span class="mini">(догадка)</span>' : ''), r.wr, r.lo, r.hi, r.n, t.base, { note: pNote(r) })).join('');
+    return rows.map(r => barRow(esc(r.group), r.wr, r.lo, r.hi, r.n, t.base, { row: r })).join('');
   }
-  function htmlTable(t) {
-    const body = t.rows.map(r => {
-      const flag = r.p == null ? '-' : r.p.toFixed(3) + ((r.p < 0.01 && r.n >= 15) ? ' <span class="chip good">надежно</span>' : (r.p < 0.05 ? ' <span class="chip">слабый сигнал</span>' : ''));
-      return `<tr><td>${esc(r.group)}${r.n < 10 ? ' <span class="mini">(догадка)</span>' : ''}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td class="num">${((r.wr - t.base) * 100 > 0 ? '+' : '') + Math.round((r.wr - t.base) * 100)} п.п.</td><td>${flag}</td></tr>`;
-    }).join('');
-    return `<details class="tbl"><summary>${esc(t.title)}</summary><div class="tscroll"><table><tr><th>группа</th><th class="num">игр</th><th class="num">винрейт</th><th class="num">95% ДИ</th><th class="num">vs база</th><th>p</th></tr>${body}</table></div></details>`;
+  const barLegend = (base, extra) => `<div class="legend">${extra || ''}<span><i class="sw base"></i>твой обычный винрейт ${pct(base)}</span><span><i class="sw ci"></i>разброс из-за случайности</span></div>`;
+  function htmlTable(t, open) {
+    const body = t.rows.map(r => `<tr><td>${esc(r.group)}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td class="num">${diff(r.wr, t.base)}</td><td>${reliChip(r) || ''}</td></tr>`).join('');
+    return `<details class="tbl"${open ? ' open' : ''}><summary>${esc(t.title)}</summary><div class="tscroll"><table><tr><th>срез</th><th class="num">игр</th><th class="num">побед</th><th class="num">разброс</th><th class="num">к обычному</th><th>надежность</th></tr>${body}</table></div></details>`;
   }
-  function noChart(canvas) { if (typeof Chart !== 'undefined') return false; const box = canvas.parentElement; box.style.height = 'auto'; box.innerHTML = '<p class="muted" style="margin:0">График не загрузился (нет доступа к cdnjs.cloudflare.com). Числа есть в таблицах ниже.</p>'; return true; }
+  function noChart(canvas) { if (typeof Chart !== 'undefined') return false; const box = canvas.parentElement; box.style.height = 'auto'; box.innerHTML = '<p class="muted" style="margin:0">График не загрузился - проверь соединение и обнови страницу. Те же числа есть в таблицах ниже.</p>'; return true; }
   function lineChart(canvas, labels, datasets, yPct) {
     if (noChart(canvas)) return null;
     const ink = cssVar('--ink2'), grid = cssVar('--grid');
     const c = new Chart(canvas, { type: 'line', data: { labels, datasets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
       plugins: { legend: { display: datasets.length > 1, labels: { color: ink, boxWidth: 12 } }, tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + (yPct ? Math.round(ctx.parsed.y * 100) + '%' : ctx.parsed.y) } } },
-      scales: { x: { ticks: { color: ink, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: grid } }, y: { min: yPct ? 0 : undefined, max: yPct ? 1 : undefined, ticks: { color: ink, callback: v => yPct ? Math.round(v * 100) + '%' : v }, grid: { color: grid } } } } });
+      scales: { x: { ticks: { color: ink, maxTicksLimit: 6, maxRotation: 0 }, grid: { color: grid } }, y: { min: yPct ? 0 : undefined, max: yPct ? 1 : undefined, ticks: { color: ink, callback: v => yPct ? Math.round(v * 100) + '%' : v }, grid: { color: grid } } } } });
     state.charts.push(c); return c;
   }
   function barChart(canvas, labels, datasets, opts) {
@@ -115,59 +126,70 @@
         y: { beginAtZero: true, max: opts.pct && !opts.horizontal ? 1 : undefined, ticks: { color: ink, callback: v => opts.pct && !opts.horizontal ? Math.round(v * 100) + '%' : v }, grid: { color: grid } } } } });
     state.charts.push(c); return c;
   }
+  const GLOSSARY = `<details class="tbl glossary"><summary>Как читать эти цифры</summary><div class="gbody">
+    <p><b>Твой обычный винрейт</b> - доля побед во всех твоих играх этого режима. Все срезы сравниваются с ним, а не с 50%: вопрос не «хорошо ли это вообще», а «лучше или хуже, чем у тебя обычно».</p>
+    <p><b>Разброс</b> - вилка вроде «от 43 до 60%». Винрейт на маленькой выборке скачет сам по себе; вилка показывает, где он на самом деле может быть. Чем больше игр, тем она уже.</p>
+    <p><b>Надежность.</b> <span class="chip good">надежно</span> - разница с обычным слишком большая, чтобы быть случайной (и игр не меньше 15). <span class="chip warn">возможно</span> - похоже на закономерность, но может быть совпадением. <span class="chip muted-chip">случайность</span> - разницы, скорее всего, нет. <span class="chip muted-chip">мало игр</span> - меньше 10 игр, это догадка.</p>
+    <p><b>Последние 150</b> - свежий срез. Если закономерность есть и во всех играх, и в последних 150, на нее стоит смотреть. Если только в старых - возможно, ты уже это поправил.</p>
+    <p><b>Разобранный реплей</b> - OpenDota прочитала запись игры: оттуда видно золото по минутам, кто кого убил и когда, покупки, варды и драки. Без реплея есть только итоговая таблица матча.</p>
+  </div></details>`;
 
   // ---------- страница игрока ----------
   function renderPlayer(app, p) {
     const an = state.analysis[p.account_id];
     const nar = state.narrative[p.account_id] || null;
-    const prof = (an && an.profile) || {};
     const head = `<header class="phead">${p.avatar ? `<img class="avatar" src="${esc(p.avatar)}" alt="">` : '<div class="avatar"></div>'}<div class="txt">
-      <p class="eyebrow">Игрок · OpenDota ${p.account_id}</p><h1>${esc(p.name)}</h1>
-      <p class="meta"><span class="chip">${esc(p.rank || '')}</span><span class="chip">${p.matches} игр в истории</span>${p.last_match ? `<span class="chip">последняя ${dt(p.last_match)}</span>` : ''}<a class="chip" href="https://www.opendota.com/players/${p.account_id}" target="_blank" rel="noopener">OpenDota</a><a class="chip" href="https://steamcommunity.com/profiles/${esc(p.steam_id64)}" target="_blank" rel="noopener">Steam</a></p>
+      <h1>${esc(p.name)}</h1>
+      <p class="meta"><span class="chip">${esc(p.rank || 'без ранга')}</span><span class="chip">${games(p.matches)} в истории</span>${p.last_match ? `<span class="chip">последняя ${dt(p.last_match)}</span>` : ''}<a class="chip link" href="https://www.opendota.com/players/${p.account_id}" target="_blank" rel="noopener">OpenDota</a><a class="chip link" href="https://steamcommunity.com/profiles/${esc(p.steam_id64)}" target="_blank" rel="noopener">Steam</a></p>
       ${nar && nar.role ? `<p class="lead" style="margin:0">${esc(nar.role)}</p>` : ''}</div></header>`;
     app.insertAdjacentHTML('beforeend', head);
     if (!p.exposed || !an || an.empty || !an.modes || !Object.keys(an.modes).length) {
-      app.insertAdjacentHTML('beforeend', `<div class="notice"><h3>Статистика закрыта</h3><p>OpenDota не видит ни одного матча этого аккаунта. Игроку нужно в клиенте Dota 2 открыть Настройки, вкладку Social и включить <b>Expose Public Match Data</b>. После этого сбор подтянет историю автоматически (он запускается каждые 3 часа), первые цифры появятся в течение дня.</p><p class="mini">Если настройка уже включена - подождите следующего обновления: OpenDota подтягивает историю не мгновенно.</p></div>`);
+      app.insertAdjacentHTML('beforeend', `<div class="notice"><h3>Статистика пока закрыта</h3><p>OpenDota не видит матчи этого аккаунта, поэтому разбирать пока нечего. Чтобы открыть: в Dota 2 зайди в Настройки, вкладка Social, включи <b>Expose Public Match Data</b>. Больше ничего делать не нужно - сайт сам подтянет историю при следующем обновлении, обычно в течение нескольких часов.</p><p class="mini">Уже включил? Значит, OpenDota еще не успела забрать историю - загляни позже.</p></div>`);
       return;
     }
     const modes = Object.keys(an.modes).filter(m => an.modes[m].summary.n >= 5);
     if (!modes.includes(state.mode)) state.mode = modes[0];
-    const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Режим' });
-    modes.forEach(m => { const b = el('button', { type: 'button', 'aria-pressed': String(m === state.mode) }, `${MODE_NAMES[m] || m} · ${an.modes[m].summary.n}`); b.addEventListener('click', () => { state.mode = m; route(); }); seg.appendChild(b); });
-    seg.insertAdjacentHTML('beforeend', `<a class="btn primary" href="#match" style="text-decoration:none" data-pick="${p.account_id}">Свежие игры и разбор матча</a>`);
-    seg.querySelector('[data-pick]').addEventListener('click', () => { if (window.DCMatchPick) window.DCMatchPick(p.account_id); });
+    const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Режим игры' });
+    modes.forEach(m => { const b = el('button', { type: 'button', 'aria-pressed': String(m === state.mode) }, `${MODE_NAMES[m] || m} <span class="mini">${an.modes[m].summary.n}</span>`); b.addEventListener('click', () => { state.mode = m; route(); }); seg.appendChild(b); });
     app.appendChild(seg);
     const M = an.modes[state.mode], S = M.summary, H = M.history, R = M.recent || null;
     const base = S.wr;
+    const modeWord = state.mode === 'ranked' ? 'рейтинговых' : state.mode === 'turbo' ? 'турбо' : 'обычных';
+    app.insertAdjacentHTML('beforeend', `<p class="lead intro">Ниже - твоя статистика по ${modeWord} играм: что работает, что сливает игры и что с этим делать. Начни с блока тренера и закономерностей, остальное - подробности.</p>
+      <p class="actions"><a class="btn primary" href="#match" data-pick="${p.account_id}">Разобрать свежую игру</a></p>`);
+    app.querySelector('[data-pick]').addEventListener('click', () => { if (window.DCMatchPick) window.DCMatchPick(p.account_id); });
     app.insertAdjacentHTML('beforeend', `<div class="tiles">` +
-      tile('Все игры режима', pct(S.wr), `${S.n} игр, ДИ ${pct(S.ci[0])}-${pct(S.ci[1])}, с ${dt(S.first)}`) +
-      (R && R.n >= 20 ? tile(`Последние ${R.n}`, pct(R.wr), `ДИ ${pct(R.ci[0])}-${pct(R.ci[1])}, с ${dt(R.first)}`) : '') +
-      tile('Последние 50', pct(S.last50_wins / Math.max(1, S.last50_n)), `${S.last50_wins} побед из ${S.last50_n}`) +
-      tile('Смертей за игру', f1(S.deaths), R ? `последние ${R.n}: ${f1(R.deaths)}` : '') +
-      tile('K / D / A', `${f1(S.kills)} / ${f1(S.deaths)} / ${f1(S.assists)}`, `KDA ${f1(S.kda)}`) +
-      (S.gpm ? tile('GPM / XPM', `${f0(S.gpm)} / ${f0(S.xpm)}`, `добитых за игру ${f0(S.lh)}`) : '') + `</div>`);
+      tile('Винрейт за все время', pct(S.wr), `${games(S.n)} с ${dt(S.first)}; разброс ${pct(S.ci[0])}-${pct(S.ci[1])}`) +
+      (R && R.n >= 20 ? tile(`Последние ${R.n} игр`, pct(R.wr), `с ${dt(R.first)}; разброс ${pct(R.ci[0])}-${pct(R.ci[1])}`) : '') +
+      tile('Последние 50 игр', pct(S.last50_wins / Math.max(1, S.last50_n)), `${S.last50_wins} побед из ${S.last50_n}`) +
+      tile('Смертей за игру', f1(S.deaths), R ? `в последних ${R.n}: ${f1(R.deaths)}` : '') +
+      tile('Убийства / смерти / помощь', `<span class="vsm">${f1(S.kills)} / ${f1(S.deaths)} / ${f1(S.assists)}</span>`, `KDA ${f1(S.kda)}`) +
+      (S.gpm ? tile('Золото и опыт в минуту', `<span class="vsm">${f0(S.gpm)} / ${f0(S.xpm)}</span>`, `добитых за игру ${f0(S.lh)}`) : '') + `</div>`);
+    app.insertAdjacentHTML('beforeend', GLOSSARY);
 
-    // тренер или автонаходки
+    // тренер
     if (nar && nar.verdict && state.mode === 'ranked') {
-      app.insertAdjacentHTML('beforeend', `<section class="verdict"><h2>Главное от тренера</h2><p>${esc(nar.verdict)}</p>${nar.plan_review ? `<p style="margin-top:8px"><b>Проверка прошлого плана.</b> ${esc(nar.plan_review)}</p>` : ''}<p class="mini" style="margin-top:6px">Отчет от ${esc(nar.report_date || '')}${nar.source === 'ai' ? ', написан моделью ' + esc(nar.model || '') + ' по данным выше' : ', написан вручную'}. Проверка плана: ${esc(nar.check_date || '')}. Следующий отчет - автоматически через 30 рейтинговых игр.</p></section>`);
+      app.insertAdjacentHTML('beforeend', `<section class="verdict"><h2>Главное от тренера</h2><p>${esc(nar.verdict)}</p>${nar.plan_review ? `<p style="margin-top:8px"><b>Как прошел прошлый план.</b> ${esc(nar.plan_review)}</p>` : ''}<p class="mini" style="margin-top:8px">Отчет от ${esc(nar.report_date || '')}${nar.source === 'ai' ? ' - написан моделью по цифрам с этой страницы' : ' - написан вручную'}. Проверка плана: ${esc(nar.check_date || '')}. Следующий отчет появится сам через 30 рейтинговых игр.</p></section>`);
     }
+
+    // закономерности
     const fnd = M.findings || [];
-    app.insertAdjacentHTML('beforeend', `<section><h2>Что данные говорят сами</h2><p class="lead">Срезы по всем ${S.n} играм режима, где разница с базой ${pct(base)} проходит тест на случайность (p &lt; 0.01, 15+ игр). Отдельно отмечено, повторяется ли разница на последних ${R ? R.n : 150} играх. Остальное - шум или слишком маленькая выборка.</p><div class="chart">` +
-      (fnd.length ? fnd.map(f => `<div class="finding"><b>${pct(f.wr)}</b><span>${esc(f.table)}: <b>${esc(f.group)}</b> - ${f.n} игр, против базы ${(f.wr - f.base) * 100 > 0 ? '+' : ''}${Math.round((f.wr - f.base) * 100)} п.п., p=${f.p < 0.001 ? '<0.001' : f.p.toFixed(3)}${f.holds_recent === true ? ` <span class="chip good">держится на последних ${f.recent_n}</span>` : f.holds_recent === false ? ` <span class="chip warn">на последних ${f.recent_n} не подтверждается</span>` : ''}</span></div>`).join('') : '<p class="muted" style="margin:0">Пока ни один срез не прошел порог надежности - мало игр.</p>') + `</div></section>`);
+    app.insertAdjacentHTML('beforeend', `<section><h2>Что точно влияет на твой результат</h2><p class="lead">Срезы, где разница с обычным винрейтом ${pct(base)} слишком большая, чтобы быть случайной. Зеленая пометка - то же самое видно и на последних ${R ? R.n : 150} играх, значит, это актуально сейчас.</p><div class="chart list">` +
+      (fnd.length ? fnd.map(f => `<div class="finding"><b>${pct(f.wr)}</b><span>${esc(f.table.toLowerCase())}: <b>${esc(f.group)}</b> - ${games(f.n)}, ${diffWords(f.wr, f.base)}${f.holds_recent === true ? ` <span class="chip good">держится на последних ${f.recent_n}</span>` : f.holds_recent === false ? ` <span class="chip warn">на последних ${f.recent_n} не повторяется</span>` : ''}${CURIOSITY.has(f.table) ? ' <span class="chip muted-chip" title="На это нельзя повлиять, и такие срезы часто оказываются совпадением">любопытно, но не совет</span>' : ''}</span></div>`).join('') : '<p class="muted" style="margin:0">Пока ни один срез не дотянул до «надежно» - нужно больше игр.</p>') + `</div></section>`);
 
     // разборы матчей тренером
     const revs = (state.reviews[p.account_id] || []).slice(0, 12);
-    app.insertAdjacentHTML('beforeend', `<section><h2>Разборы последних матчей</h2><p class="lead">Каждый час сбор проверяет новые игры, просит OpenDota разобрать реплей и, когда он готов, модель пишет разбор по методике: позиция, хронология, смерти, ключевые моменты и три правки.</p>` +
-      (revs.length ? `<div class="chart" style="padding:4px 14px">${revs.map(r => `<div class="finding"><span class="chip ${r.win ? 'good' : 'bad'}">${r.win ? 'победа' : 'поражение'}</span><span><b>${dt(r.start_time)}</b> ${esc(heroName(r.hero_id))}${r.kda ? ' ' + r.kda.join('/') : ''} · ${esc(r.mode || '')} · <a href="#match/${r.match_id}">${esc(r.short || 'разбор')}</a>${r.severity ? ` <span class="mini">влияние на исход: ${esc(r.severity)}</span>` : ''}</span></div>`).join('')}</div>` : '<p class="muted">Разборов пока нет: появятся после следующей игры, когда OpenDota разберет реплей (обычно в течение часа-двух после матча).</p>') + `</section>`);
+    app.insertAdjacentHTML('beforeend', `<section><h2>Разборы последних матчей</h2><p class="lead">После каждой игры сайт ждет, пока OpenDota прочитает реплей (обычно час-два), и тренер пишет разбор: что решило игру, какие смерти были ошибкой, что исправить в следующих 10 играх.</p>` +
+      (revs.length ? `<div class="chart list">${revs.map(r => `<a class="rev" href="#match/${r.match_id}"><span class="chip ${r.win ? 'good' : 'bad'}">${r.win ? 'победа' : 'поражение'}</span><span class="rev-body"><span class="rev-title">${esc(heroName(r.hero_id))}${r.kda ? ' <span class="mono">' + r.kda.join('/') + '</span>' : ''} <span class="mini">${dt(r.start_time)} · ${esc(r.mode || '')}</span></span><span class="rev-short">${esc(r.short || 'открыть разбор')}</span></span></a>`).join('')}</div>` : '<p class="muted">Разборов пока нет. Первый появится после ближайшей игры.</p>') + `</section>`);
 
     // форма
     if (M.series.rolling30.length > 5) {
-      const sec = el('section', null, `<h2>Форма</h2><p class="lead">Скользящий винрейт по последним 30 играм. Линия базы - винрейт всей локальной истории в этом режиме.</p><div class="chart cv" style="height:240px"><canvas id="rollChart"></canvas></div>`);
+      const sec = el('section', null, `<h2>Как идет форма</h2><p class="lead">Винрейт по последним 30 играм на каждую дату. Пунктир - твой обычный винрейт: линия выше него значит, что сейчас ты играешь лучше своего среднего.</p><div class="chart cv" style="height:240px"><canvas id="rollChart"></canvas></div>`);
       app.appendChild(sec);
       const pts = M.series.rolling30;
       lineChart($('#rollChart'), pts.map(x => dt(x[0])), [
-        { label: 'скользящий винрейт (30 игр)', data: pts.map(x => x[1]), borderColor: cssVar('--s1'), backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.25 },
-        { label: 'база', data: pts.map(() => base), borderColor: cssVar('--muted'), borderDash: [4, 4], borderWidth: 1, pointRadius: 0 }], true);
+        { label: 'винрейт последних 30 игр', data: pts.map(x => x[1]), borderColor: cssVar('--s1'), backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.25 },
+        { label: 'обычный винрейт', data: pts.map(() => base), borderColor: cssVar('--muted'), borderDash: [4, 4], borderWidth: 1, pointRadius: 0 }], true);
     }
 
     // смерти
@@ -177,39 +199,42 @@
     ['0-3', '4-6', '7-9', '10+'].forEach(k => {
       const a = dT && dT.rows.find(x => x.group === k), r = rT && rT.rows.find(x => x.group === k);
       let inner = '';
-      if (a) inner += barRow('все игры', a.wr, a.lo, a.hi, a.n, base, { cls: 's1', note: pNote(a) });
-      if (r) inner += barRow(`последние ${R.n}`, r.wr, r.lo, r.hi, r.n, R.wr, { cls: 's2', note: pNote(r) });
-      if (inner) groups += `<div class="bgroup"><div class="bgroup-title">${k} смертей</div>${inner}</div>`;
+      if (a) inner += barRow('все игры', a.wr, a.lo, a.hi, a.n, base, { cls: 's1', row: a });
+      if (r) inner += barRow(`последние ${R.n}`, r.wr, r.lo, r.hi, r.n, R.wr, { cls: 's2', row: r });
+      if (inner) groups += `<div class="bgroup"><div class="bgroup-title">${k} смертей за игру</div>${inner}</div>`;
     });
-    app.insertAdjacentHTML('beforeend', `<section><h2>Смерти и исход игры</h2><p class="lead">Винрейт по числу смертей за игру. Это связь, а не доказанная причина: проигранная игра сама дает больше смертей. Где именно они случаются, показывают разобранные реплеи ниже.</p>
-      <div class="chart"><div class="legend"><span><i class="sw s1"></i>все игры режима</span><span><i class="sw s2"></i>последние ${R ? R.n : 150}</span><span><i class="sw base"></i>база</span><span><i class="sw ci"></i>95% ДИ</span></div>${groups}</div>
-      <p class="src">Доля игр с 10+ смертями: ${pct(S.share_10plus)} за все игры${R ? ', ' + pct(R.share_10plus) + ` за последние ${R.n}` : ''}. Смертей в победах ${f1(M.deaths.in_wins)}, в поражениях ${f1(M.deaths.in_losses)}.</p></section>`);
+    app.insertAdjacentHTML('beforeend', `<section><h2>Сколько смертей ты можешь себе позволить</h2><p class="lead">Винрейт в зависимости от числа смертей за игру. Честная оговорка: проигранная игра сама по себе дает больше смертей, так что это связь, а не доказанная причина. Где именно ты умираешь, видно по реплеям ниже.</p>
+      <div class="chart">${barLegend(base, `<span><i class="sw s1"></i>все игры</span><span><i class="sw s2"></i>последние ${R ? R.n : 150}</span>`)}${groups}</div>
+      <p class="src">Игр с 10 и больше смертями: ${pct(S.share_10plus)} от всех${R ? `, ${pct(R.share_10plus)} среди последних ${R.n}` : ''}. В победах ты умираешь в среднем ${f1(M.deaths.in_wins)} раз, в поражениях ${f1(M.deaths.in_losses)}.</p></section>`);
 
     // тренер: плюсы/минусы/план
     if (nar && state.mode === 'ranked') {
       const cards = (items, kind) => items.map(it => `<article class="card ${kind}"><h4><span class="mark"></span>${esc(it.title)}</h4><p>${esc(it.text)}</p></article>`).join('');
-      app.insertAdjacentHTML('beforeend', `<div class="two"><section><h2>Где сильный</h2>${cards(nar.pluses || [], 'plus')}</section><section><h2>Где теряет игры</h2>${cards(nar.minuses || [], 'minus')}</section></div>`);
-      const plan = (nar.plan || []).map((x, i) => `<article class="plan"><div class="plan-no">Совет ${i + 1}</div><h4>${esc(x.title)}</h4><dl><dt>Метрика</dt><dd>${esc(x.metric)}</dd><dt>База</dt><dd>${esc(x.base)}</dd><dt>Цель</dt><dd>${esc(x.target)}</dd><dt>Как</dt><dd>${esc(x.how)}</dd></dl></article>`).join('');
-      app.insertAdjacentHTML('beforeend', `<section><h2>План на следующие 30 рейтинговых игр</h2><p class="lead">Проверка ${esc(nar.check_date || '')}. Сравниваем с базой игрока, не с 50%.</p><div class="plans">${plan}</div></section>`);
-      app.insertAdjacentHTML('beforeend', `<div class="two"><section><h2>Что не влияет</h2><ul class="plain">${(nar.noise || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></section><section><h2>Вопросы к игроку</h2><ul class="plain">${(nar.questions || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></section></div>`);
+      app.insertAdjacentHTML('beforeend', `<div class="two"><section><h2>Что у тебя получается</h2>${cards(nar.pluses || [], 'plus')}</section><section><h2>Что сливает игры</h2>${cards(nar.minuses || [], 'minus')}</section></div>`);
+      const plan = (nar.plan || []).map((x, i) => `<article class="plan"><div class="plan-no">Совет ${i + 1} из ${(nar.plan || []).length}</div><h4>${esc(x.title)}</h4><dl><dt>Что меряем</dt><dd>${esc(x.metric)}</dd><dt>Сейчас</dt><dd>${esc(x.base)}</dd><dt>Цель</dt><dd>${esc(x.target)}</dd><dt>Как</dt><dd>${esc(x.how)}</dd></dl></article>`).join('');
+      app.insertAdjacentHTML('beforeend', `<section><h2>План на следующие 30 рейтинговых игр</h2><p class="lead">Три вещи, на которых стоит сосредоточиться. У каждой есть число, по которому через 30 игр будет видно, сработало или нет. Проверка: ${esc(nar.check_date || '')}.</p><div class="plans">${plan}</div></section>`);
+      app.insertAdjacentHTML('beforeend', `<div class="two"><section><h2>На что не стоит тратить внимание</h2><p class="lead">Это проверяли - закономерности нет.</p><ul class="plain">${(nar.noise || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></section><section><h2>Вопросы к тебе</h2><p class="lead">Без ответов разбор неполный - напиши их тому, кто ведет сайт.</p><ul class="plain">${(nar.questions || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></section></div>`);
     }
 
     // герои
     const poolName = x => String(x).split(/\s[-–(]/)[0].trim();
     const keep = new Set(((nar && nar.hero_pool && nar.hero_pool.keep) || []).map(poolName)), drop = new Set(((nar && nar.hero_pool && nar.hero_pool.drop) || []).map(poolName));
-    const heroRows = M.heroes.map(r => `<tr><td>${esc(r.hero)}${keep.has(r.hero) ? ' <span class="chip good">в пул</span>' : ''}${drop.has(r.hero) ? ' <span class="chip bad">убрать</span>' : ''}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td class="num">${r.p == null ? '-' : r.p.toFixed(3)}</td><td class="num">${r.recent_n ? r.recent_wins + '/' + r.recent_n : '-'}</td><td class="num">${f1(r.k)}/${f1(r.d)}/${f1(r.a)}</td><td class="num">${f0(r.gpm)}</td><td class="num">${f0(r.xpm)}</td><td class="num">${f1(r.lhpm)}</td><td>${(r.roles || []).map(x => x[0] + ' x' + x[1]).join(', ') || '-'}</td></tr>`).join('');
-    const histHeroes = H && H.heroes ? H.heroes.filter(h => h.n >= 20).map(h => barRow(esc(h.hero), h.wr, h.lo, h.hi, h.n, H.wr, { tag: keep.has(h.hero) ? 'в пул' : (drop.has(h.hero) ? 'убрать' : ''), tagCls: keep.has(h.hero) ? 'good' : 'bad', cls: keep.has(h.hero) ? 'good' : (drop.has(h.hero) ? 'bad' : 's1'), note: 'последняя ' + dt(h.last) })).join('') : '';
-    app.insertAdjacentHTML('beforeend', `<section><h2>Герои</h2><p class="lead">За все ${S.n} игр - ${S.distinct_heroes} разных героев, три самых частых дали ${pct(S.top3_share)} игр${R ? `; за последние ${R.n} игр - ${R.distinct_heroes} героев, топ-3 закрывают ${pct(R.top3_share)}` : ''}. Ниже герои с 10+ играми; GPM, XPM и добитые - средние по этим играм.</p>
-      ${heroRows ? `<div class="tscroll" style="padding:0"><table><tr><th>герой</th><th class="num">игр</th><th class="num">винрейт</th><th class="num">95% ДИ</th><th class="num">p</th><th class="num">последние ${R ? R.n : 150}: W/игр</th><th class="num">K/D/A</th><th class="num">GPM</th><th class="num">XPM</th><th class="num">доб/мин</th><th>позиция</th></tr>${heroRows}</table></div>` : '<p class="muted">Нет героев с 10+ играми в локальной истории.</p>'}
-      ${histHeroes ? `<h3 style="margin-top:18px">Герои с 20+ играми по агрегатам OpenDota</h3><div class="chart"><div class="legend"><span><i class="sw base"></i>база ${pct(H.wr)}</span><span><i class="sw ci"></i>95% ДИ</span></div>${histHeroes}</div>` : ''}</section>`);
+    const heroRows = M.heroes.map((r, i) => `<tr${i >= 12 ? ' class="more" hidden' : ''}><td>${esc(r.hero)}${keep.has(r.hero) ? ' <span class="chip good">в пул</span>' : ''}${drop.has(r.hero) ? ' <span class="chip bad">убрать</span>' : ''}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td>${reliChip(r) || ''}</td><td class="num">${r.recent_n ? r.recent_wins + ' из ' + r.recent_n : '-'}</td><td class="num">${f1(r.k)}/${f1(r.d)}/${f1(r.a)}</td><td class="num">${f0(r.gpm)}</td><td class="num">${f0(r.xpm)}</td><td class="num">${f1(r.lhpm)}</td><td>${(r.roles || []).map(x => x[0] + ' ×' + x[1]).join(', ') || '-'}</td></tr>`).join('');
+    const histHeroes = H && H.heroes ? H.heroes.filter(h => h.n >= 20).map(h => barRow(esc(h.hero), h.wr, h.lo, h.hi, h.n, H.wr, { tag: keep.has(h.hero) ? 'в пул' : (drop.has(h.hero) ? 'убрать' : ''), tagCls: keep.has(h.hero) ? 'good' : 'bad', cls: keep.has(h.hero) ? 'good' : (drop.has(h.hero) ? 'bad' : 's1'), row: h })).join('') : '';
+    app.insertAdjacentHTML('beforeend', `<section><h2>Герои</h2><p class="lead">За все время - ${S.distinct_heroes} разных героев, три самых частых дали ${pct(S.top3_share)} игр${R ? `; за последние ${R.n} игр - ${R.distinct_heroes} героев, топ-3 закрывают ${pct(R.top3_share)}` : ''}. Пометки «в пул» и «убрать» - из плана тренера.</p>
+      ${heroRows ? `<div class="tscroll sticky-first"><table><tr><th>герой</th><th class="num">игр</th><th class="num">побед</th><th class="num">разброс</th><th>надежность</th><th class="num">последние ${R ? R.n : 150}</th><th class="num">K/D/A</th><th class="num">GPM</th><th class="num">XPM</th><th class="num">доб/мин</th><th>позиция</th></tr>${heroRows}</table></div>${M.heroes.length > 12 ? `<p class="actions" style="margin:10px 0 0"><button class="btn" type="button" data-more>Показать еще ${games(M.heroes.length - 12).replace(/игр[аы]?/, m => ({ 'игра': 'героя', 'игры': 'героя', 'игр': 'героев' })[m])}</button></p>` : ''}<p class="src">В таблице герои с 10 и больше играми. GPM, XPM и добитые в минуту - средние по этим играм.</p>` : '<p class="muted">Пока нет героев с 10 и больше играми.</p>'}
+      ${histHeroes ? `<h3 style="margin-top:18px">Герои с 20+ играми за все время</h3><div class="chart">${barLegend(H.wr)}${histHeroes}</div>` : ''}</section>`);
+
+    const moreBtn = app.querySelector('[data-more]');
+    if (moreBtn) moreBtn.addEventListener('click', () => { app.querySelectorAll('tr.more').forEach(tr => tr.hidden = false); moreBtn.closest('p').remove(); });
 
     // привычки
     const partyT = M.tables.find(t => t.title === 'Соло или пати'), sideT = M.tables.find(t => t.title === 'Сторона карты'), posT = M.tables.find(t => t.title.startsWith('Позиция'));
-    app.insertAdjacentHTML('beforeend', `<section><h2>Привычки и контекст</h2><div class="grid2">
-      ${partyT ? `<div class="chart"><h4>Соло или пати</h4>${barsFromTable(partyT, ['соло', 'пати из 2', 'пати из 3', 'пати из 4', 'пати из 5'])}</div>` : ''}
-      ${sideT ? `<div class="chart"><h4>Сторона карты</h4>${barsFromTable(sideT, ['Radiant', 'Dire'])}</div>` : ''}
-      ${posT && posT.rows.length ? `<div class="chart"><h4>Позиция (где известна)</h4>${barsFromTable(posT)}</div>` : ''}
-      </div><div style="margin-top:12px">${M.tables.filter(t => ['layer1', 'habits'].includes(t.section) && !['Соло или пати', 'Сторона карты'].includes(t.title)).map(htmlTable).join('')}${H ? H.tables.filter(t => !t.title.startsWith('Смерти')).map(htmlTable).join('') : ''}</div></section>`);
+    app.insertAdjacentHTML('beforeend', `<section><h2>Когда и с кем ты играешь лучше</h2><p class="lead">Винрейт по обстоятельствам игры. Смотри на пометки надежности: час старта и сторона карты почти всегда оказываются случайностью.</p><div class="grid2">
+      ${partyT ? `<div class="chart"><h4>Один или в пати</h4>${barLegend(base)}${barsFromTable(partyT, ['соло', 'пати из 2', 'пати из 3', 'пати из 4', 'пати из 5'])}</div>` : ''}
+      ${sideT ? `<div class="chart"><h4>Сторона карты</h4>${barLegend(base)}${barsFromTable(sideT, ['Radiant', 'Dire'])}</div>` : ''}
+      ${posT && posT.rows.length ? `<div class="chart"><h4>Позиция (где она известна)</h4>${barLegend(base)}${barsFromTable(posT)}</div>` : ''}
+      </div><h3 style="margin-top:18px">Подробные таблицы</h3><p class="lead">Для тех, кто хочет покопаться: месяцы, длительность, час старта, номер игры в сессии, серии поражений.</p>${M.tables.filter(t => ['layer1', 'habits'].includes(t.section) && !['Соло или пати', 'Сторона карты'].includes(t.title)).map(t => htmlTable(t)).join('')}${H ? H.tables.filter(t => !t.title.startsWith('Смерти')).map(t => htmlTable(t)).join('') : ''}</section>`);
 
     // разобранные матчи
     renderParsed(app, M, p);
@@ -218,26 +243,26 @@
   function renderParsed(app, M, p) {
     const P = M.parsed || { n: 0 };
     if (!P.n) {
-      app.insertAdjacentHTML('beforeend', `<section><h2>Разобранные реплеи</h2><div class="notice"><p>Пока нет разобранных матчей в этом режиме${P.pending ? ` (ждут парса: ${P.pending})` : ''}. OpenDota разбирает только свежие реплеи, сбор запрашивает их при каждом обновлении. Здесь появятся линия на 10 минуте, тайминги предметов, варды и журнал ошибок.</p></div></section>`);
+      app.insertAdjacentHTML('beforeend', `<section><h2>Что видно по реплеям</h2><div class="notice"><p>В этом режиме разобранных реплеев пока нет${P.pending ? ` (${P.pending} ждут очереди в OpenDota)` : ''}. Разбираются только свежие игры, и сайт запрашивает их сам. Как появятся, здесь будет линия на 10 минуте, тайминги предметов, варды и журнал ошибок.</p></div></section>`);
       return;
     }
     const L = P.lane || {};
-    const lane = `<div class="chart"><h4>Линия (до 10 минуты)</h4>
-      ${L.won && L.won.n ? barRow('линия выиграна по золоту', L.won.wr, wilson(L.won.wins, L.won.n)[1], wilson(L.won.wins, L.won.n)[2], L.won.n, M.summary.wr) : ''}
-      ${L.lost && L.lost.n ? barRow('линия проиграна', L.lost.wr, wilson(L.lost.wins, L.lost.n)[1], wilson(L.lost.wins, L.lost.n)[2], L.lost.n, M.summary.wr, { cls: 's2' }) : ''}
-      <p class="src">Разница золота с соперником по линии на 10 мин: в среднем ${f0(L.gd10_avg)} (в победах ${f0(L.gd10_wins)}, в поражениях ${f0(L.gd10_losses)}). Добитых на 10 мин: ${f1(L.lh10_avg)}. Смертей до 10 минуты за игру: ${f1(L.early_deaths_per_game)}${L.early_killers && L.early_killers.length ? '; чаще всего убивали: ' + L.early_killers.map(x => x[0] + ' x' + x[1]).join(', ') : ''}. Позиции: ${(L.roles || []).map(x => x[0] + ' x' + x[1]).join(', ')}.${L.p != null ? ' p разницы линия выиграна/проиграна = ' + L.p.toFixed(3) + '.' : ''}</p></div>`;
-    const items = (P.items || []).length ? `<div class="tscroll" style="padding:0"><table><tr><th>герой</th><th>предмет</th><th class="num">игр</th><th class="num">мин, среднее</th><th class="num">в победах</th><th class="num">в поражениях</th></tr>${P.items.map(x => `<tr><td>${esc(x.hero)}</td><td>${esc(x.item)}</td><td class="num">${x.n}</td><td class="num">${f1(x.avg)}</td><td class="num">${f1(x.wins_avg)}</td><td class="num">${f1(x.losses_avg)}</td></tr>`).join('')}</table></div>` : '<p class="muted">Нужно 3+ разобранных игры на одном герое с одним предметом.</p>';
+    const lane = `<div class="chart"><h4>Линия до 10 минуты</h4>
+      ${L.won && L.won.n ? barRow('линия выиграна по золоту', L.won.wr, wilson(L.won.wins, L.won.n)[1], wilson(L.won.wins, L.won.n)[2], L.won.n, M.summary.wr, { row: { n: L.won.n, p: L.p } }) : ''}
+      ${L.lost && L.lost.n ? barRow('линия проиграна', L.lost.wr, wilson(L.lost.wins, L.lost.n)[1], wilson(L.lost.wins, L.lost.n)[2], L.lost.n, M.summary.wr, { cls: 's2', row: { n: L.lost.n, p: L.p } }) : ''}
+      <p class="src">К 10-й минуте ты в среднем ${L.gd10_avg >= 0 ? 'впереди' : 'позади'} соперника по линии на ${Math.abs(Math.round(L.gd10_avg || 0))} золота (в победах ${f0(L.gd10_wins)}, в поражениях ${f0(L.gd10_losses)}). Добитых к 10 минуте: ${f1(L.lh10_avg)}. Смертей до 10 минуты: ${f1(L.early_deaths_per_game)} за игру${L.early_killers && L.early_killers.length ? '; чаще всего убивали ' + L.early_killers.map(x => x[0] + ' ×' + x[1]).join(', ') : ''}. Позиции в этих играх: ${(L.roles || []).map(x => x[0] + ' ×' + x[1]).join(', ')}.</p></div>`;
+    const items = (P.items || []).length ? `<div class="tscroll sticky-first"><table><tr><th>герой</th><th>предмет</th><th class="num">игр</th><th class="num">минута, в среднем</th><th class="num">в победах</th><th class="num">в поражениях</th></tr>${P.items.map(x => `<tr><td>${esc(x.hero)}</td><td>${esc(x.item.replace(/_/g, ' '))}</td><td class="num">${x.n}</td><td class="num">${f1(x.avg)}</td><td class="num">${f1(x.wins_avg)}</td><td class="num">${f1(x.losses_avg)}</td></tr>`).join('')}</table></div>` : '<p class="muted">Появится, когда наберется 3 разобранных игры на одном герое с одним и тем же предметом.</p>';
     const W = P.wards || {};
-    const journal = `<div class="tscroll" style="padding:0"><table><tr><th>ошибка</th><th class="num">игр с ней</th><th class="num">винрейт с ней</th><th class="num">без нее</th><th class="num">p</th></tr>${(P.journal || []).map(j => `<tr><td>${esc(j.flag)}</td><td class="num">${j.n} из ${P.n}</td><td class="num">${pct(j.wr)}</td><td class="num">${pct(j.wr_without)}</td><td class="num">${j.p == null ? '-' : j.p.toFixed(3)}</td></tr>`).join('')}</table></div>`;
+    const journal = `<div class="tscroll sticky-first"><table><tr><th>что случилось</th><th class="num">в скольких играх</th><th class="num">винрейт с этим</th><th class="num">без этого</th><th>надежность</th></tr>${(P.journal || []).map(j => `<tr><td>${esc(j.flag)}</td><td class="num">${j.n} из ${P.n}</td><td class="num">${pct(j.wr)}</td><td class="num">${pct(j.wr_without)}</td><td>${reliChip({ n: j.n, p: j.p }) || ''}</td></tr>`).join('')}</table></div>`;
     const bm = P.benchmarks_avg_pct || {};
-    const bmNames = { gold_per_min: 'GPM', xp_per_min: 'XPM', kills_per_min: 'убийства/мин', last_hits_per_min: 'добитые/мин', hero_damage_per_min: 'урон по героям/мин', hero_healing_per_min: 'лечение/мин', tower_damage: 'урон по башням', stuns_per_min: 'контроль/мин', lhten: 'добитых на 10 мин' };
-    const bmRows = Object.keys(bm).filter(k => bmNames[k]).map(k => `<div class="brow"><div class="blabel">${bmNames[k]}</div><div class="btrack" title="перцентиль ${Math.round(bm[k] * 100)}"><div class="bfill" style="width:${(bm[k] * 100).toFixed(1)}%"></div><div class="bbase" style="left:50%"></div></div><div class="bval"><b>${Math.round(bm[k] * 100)}</b><span class="bn">перцентиль</span></div></div>`).join('');
-    const recent = (P.matches || []).slice(0, 25).map(m => `<tr><td>${dt(m.start_time)}</td><td>${esc(heroName(m.hero_id))}</td><td>${LANE[m.lane_role] || '-'}</td><td class="${m.win ? 'ok' : 'no'}">${m.win ? 'победа' : 'поражение'}</td><td class="num">${m.kills}/${m.deaths}/${m.assists}</td><td class="num">${m.gd10 == null ? '-' : (m.gd10 > 0 ? '+' : '') + m.gd10}</td><td class="num">${m.early_deaths}</td><td class="num">${m.deaths_outside_fight}</td><td class="num">${m.obs}/${m.sen}</td><td>${m.thrown ? '<span class="chip bad">слив</span>' : ''}${m.comeback ? '<span class="chip good">камбэк</span>' : ''}</td><td><a href="https://www.opendota.com/matches/${m.match_id}" target="_blank" rel="noopener">${m.match_id}</a></td></tr>`).join('');
-    app.insertAdjacentHTML('beforeend', `<section><h2>Разобранные реплеи</h2><p class="lead">Разобрано ${P.n} игр в этом режиме${P.pending ? `, еще ${P.pending} ждут парса` : ''}${P.too_old ? `, ${P.too_old} старше двух недель и уже не будут разобраны (реплеи у Valve хранятся ограниченное время)` : ''}. Здесь данные из самих реплеев: линия, предметы, варды, драки.</p>
-      <div class="grid2">${lane}<div class="chart"><h4>Обзор карты и активность</h4><p class="src" style="margin:0">За игру в среднем: обсерверов ${f1(W.obs)}, сентри ${f1(W.sen)}, снято обсерверов ${f1(W.obs_killed)}, стаков ${f1(W.stacks)}.</p>${bmRows ? `<h4 style="margin-top:12px">Бенчмарки OpenDota (перцентиль среди игроков на этом герое)</h4><p class="mini">Для сапортов GPM и добитые ниже медианы - норма, смотреть надо на контроль и урон.</p>${bmRows}` : ''}</div></div>
-      <h3 style="margin-top:18px">Тайминги ключевых предметов</h3>${items}
-      <h3 style="margin-top:18px">Журнал ошибок</h3><p class="lead">Каждая разобранная игра раскладывается на повторяющиеся ошибки. Винрейт с ошибкой против винрейта без нее показывает, какая из них стоит дороже.</p>${journal}
-      <h3 style="margin-top:18px">Последние разобранные матчи</h3><div class="tscroll" style="padding:0"><table><tr><th>дата</th><th>герой</th><th>позиция</th><th>итог</th><th class="num">K/D/A</th><th class="num">золото vs линия, 10 мин</th><th class="num">смертей до 10'</th><th class="num">вне драк</th><th class="num">обс/сен</th><th></th><th>матч</th></tr>${recent}</table></div></section>`);
+    const bmNames = { gold_per_min: 'золото в минуту', xp_per_min: 'опыт в минуту', kills_per_min: 'убийства', last_hits_per_min: 'добитые', hero_damage_per_min: 'урон по героям', hero_healing_per_min: 'лечение', tower_damage: 'урон по башням', stuns_per_min: 'контроль', lhten: 'добитых к 10 минуте' };
+    const bmRows = Object.keys(bm).filter(k => bmNames[k]).map(k => `<div class="brow"><div class="blabel">${bmNames[k]}</div><div class="btrack" title="лучше, чем у ${Math.round(bm[k] * 100)}% игроков на этом герое"><div class="bfill" style="width:${(bm[k] * 100).toFixed(1)}%"></div><div class="bbase" style="left:50%"></div></div><div class="bval"><b>${Math.round(bm[k] * 100)}%</b><span class="bn">игроков позади</span></div></div>`).join('');
+    const recent = (P.matches || []).slice(0, 25).map(m => `<tr><td><a href="#match/${m.match_id}">${dt(m.start_time)}</a></td><td>${esc(heroName(m.hero_id))}</td><td>${LANE[m.lane_role] || '-'}</td><td class="${m.win ? 'ok' : 'no'}">${m.win ? 'победа' : 'поражение'}</td><td class="num">${m.kills}/${m.deaths}/${m.assists}</td><td class="num">${m.gd10 == null ? '-' : (m.gd10 > 0 ? '+' : '') + m.gd10}</td><td class="num">${m.early_deaths}</td><td class="num">${m.deaths_outside_fight}</td><td class="num">${m.obs}/${m.sen}</td><td>${m.thrown ? '<span class="chip bad">слили перевес</span>' : ''}${m.comeback ? '<span class="chip good">камбэк</span>' : ''}</td></tr>`).join('');
+    app.insertAdjacentHTML('beforeend', `<section><h2>Что видно по реплеям</h2><p class="lead">Разобрано ${games(P.n)} этого режима${P.pending ? `, еще ${P.pending} ждут очереди` : ''}${P.too_old ? `, ${P.too_old} старше двух недель и уже не разберутся (Valve хранит реплеи ограниченное время)` : ''}. Это самые точные данные: не итог матча, а то, что происходило внутри.</p>
+      <div class="grid2">${lane}<div class="chart"><h4>Карта и активность</h4><p class="src" style="margin:0 0 10px">За игру в среднем: обзорных вардов ${f1(W.obs)}, сентри ${f1(W.sen)}, снято чужих ${f1(W.obs_killed)}, стаков ${f1(W.stacks)}.</p>${bmRows ? `<h4>Сравнение с другими игроками на тех же героях</h4><p class="mini">Полоса - доля игроков, которых ты обходишь. Черта посередине - медиана. Для сапорта низкие золото и добитые - норма, важнее контроль и урон.</p>${bmRows}` : ''}</div></div>
+      <h3 style="margin-top:18px">Когда покупаешь ключевые предметы</h3>${items}
+      <h3 style="margin-top:18px">Журнал ошибок</h3><p class="lead">Каждая разобранная игра проверяется на типовые ошибки. Сравни винрейт «с этим» и «без этого»: чем больше разрыв, тем дороже ошибка обходится.</p>${journal}
+      <h3 style="margin-top:18px">Разобранные матчи</h3><p class="lead">Нажми на дату, чтобы открыть полный разбор игры.</p><div class="tscroll sticky-first"><table><tr><th>дата</th><th>герой</th><th>позиция</th><th>итог</th><th class="num">K/D/A</th><th class="num">золото vs линия, 10 мин</th><th class="num">смертей до 10'</th><th class="num">вне драк</th><th class="num">обс/сен</th><th></th></tr>${recent}</table></div></section>`);
   }
 
   // ---------- сравнение ----------
@@ -276,7 +301,7 @@
   async function renderCompare(app) {
     const exposed = state.players.filter(p => p.exposed && state.analysis[p.account_id] && !state.analysis[p.account_id].empty);
     if (!state.cmp.sel) state.cmp.sel = new Set(exposed.map(p => p.account_id));
-    app.insertAdjacentHTML('beforeend', `<header class="phead"><div class="txt"><p class="eyebrow">Сравнение игроков стака</p><h1>Сравнение</h1><p class="lead">Отметь, кого сравнивать (минимум одного). Все метрики считаются в браузере из одной и той же локальной истории, режимы не смешиваются.</p></div></header>`);
+    app.insertAdjacentHTML('beforeend', `<header class="phead"><div class="txt"><h1>Сравнение</h1><p class="lead">Кто из стака как играет и что получается вместе. Отметь игроков, выбери режим и период - все пересчитается сразу.</p></div></header>`);
     const checks = el('div', { class: 'checks' });
     exposed.forEach((p, i) => {
       const lab = el('label', null, `<input type="checkbox" ${state.cmp.sel.has(p.account_id) ? 'checked' : ''} data-acc="${p.account_id}"><span class="dot" style="background:var(--${SLOT[i % 5]})"></span>${esc(p.name)}`);
@@ -287,37 +312,36 @@
       checks.appendChild(lab);
     });
     app.appendChild(checks);
-    const ctrl = el('div', { class: 'seg', role: 'group' });
-    [['ranked', 'рейтинг'], ['normal', 'обычные'], ['turbo', 'турбо']].forEach(([k, v]) => { const b = el('button', { type: 'button', 'aria-pressed': String(state.cmp.mode === k) }, v); b.addEventListener('click', () => { state.cmp.mode = k; route(); }); ctrl.appendChild(b); });
-    app.appendChild(ctrl);
-    const rng = el('div', { class: 'seg', role: 'group', style: 'margin-left:8px' });
-    [['all', 'вся локальная история'], ['last100', 'последние 100 игр'], ['days90', '90 дней'], ['days30', '30 дней']].forEach(([k, v]) => { const b = el('button', { type: 'button', 'aria-pressed': String(state.cmp.range === k) }, v); b.addEventListener('click', () => { state.cmp.range = k; route(); }); rng.appendChild(b); });
-    app.appendChild(rng);
+    const row1 = el('div', { class: 'segrow' });
+    const ctrl = el('div', { class: 'seg', role: 'group', 'aria-label': 'Режим' });
+    [['ranked', 'Рейтинг'], ['normal', 'Обычные'], ['turbo', 'Турбо']].forEach(([k, v]) => { const b = el('button', { type: 'button', 'aria-pressed': String(state.cmp.mode === k) }, v); b.addEventListener('click', () => { state.cmp.mode = k; route(); }); ctrl.appendChild(b); });
+    const rng = el('div', { class: 'seg', role: 'group', 'aria-label': 'Период' });
+    [['all', 'Все время'], ['last100', 'Последние 100'], ['days90', '90 дней'], ['days30', '30 дней']].forEach(([k, v]) => { const b = el('button', { type: 'button', 'aria-pressed': String(state.cmp.range === k) }, v); b.addEventListener('click', () => { state.cmp.range = k; route(); }); rng.appendChild(b); });
+    row1.appendChild(ctrl); row1.appendChild(rng); app.appendChild(row1);
     const body = el('div'); app.appendChild(body); body.innerHTML = '<p class="muted">Считаю...</p>';
     const sel = exposed.filter(p => state.cmp.sel.has(p.account_id));
     await Promise.all(sel.map(async p => { if (!state.matches[p.account_id]) state.matches[p.account_id] = await getJSON(`data/${p.account_id}/matches.json`, true); }));
     const data = sel.map(p => { const all = rowsOf(p.account_id).filter(m => modeOf(m) === state.cmp.mode); const ms = filterRange(all); return { p, color: cssVar('--' + SLOT[exposed.indexOf(p) % 5]), all, ms, M: metrics(ms) }; }).filter(d => d.M);
     body.innerHTML = '';
-    if (!data.length) { body.innerHTML = '<p class="muted">В этом режиме и периоде игр нет.</p>'; return; }
+    if (!data.length) { body.innerHTML = '<p class="muted">За этот период в этом режиме игр нет. Попробуй другой период.</p>'; return; }
     const labels = data.map(d => d.p.name);
-    const charts = [['Винрейт', d => d.M.wr, true], ['Смертей за игру', d => +d.M.deaths.toFixed(2), false], ['Доля игр с 10+ смертями', d => d.M.share10, true], ['KDA', d => +d.M.kda.toFixed(2), false], ['GPM', d => Math.round(d.M.gpm || 0), false], ['XPM', d => Math.round(d.M.xpm || 0), false], ['Помощи за игру', d => +d.M.assists.toFixed(1), false], ['Урон по героям', d => Math.round(d.M.hero_damage || 0), false]];
-    const grid = el('div', { class: 'grid2' });
+    const charts = [['Винрейт', d => d.M.wr, true], ['Смертей за игру', d => +d.M.deaths.toFixed(2), false], ['Игр с 10+ смертями', d => d.M.share10, true], ['KDA', d => +d.M.kda.toFixed(2), false], ['Золото в минуту', d => Math.round(d.M.gpm || 0), false], ['Опыт в минуту', d => Math.round(d.M.xpm || 0), false], ['Помощи за игру', d => +d.M.assists.toFixed(1), false], ['Урон по героям за игру', d => Math.round(d.M.hero_damage || 0), false]];
+    const grid = el('div', { class: 'grid3' });
     charts.forEach(([title, fn, isPct], i) => {
-      const box = el('div', { class: 'chart cv', style: 'height:220px' }, `<h4 style="margin:0 0 4px">${title}</h4><canvas id="cmp${i}"></canvas>`); grid.appendChild(box);
+      const box = el('div', { class: 'chart cv', style: 'height:200px' }, `<h4 style="margin:0 0 4px">${title}</h4><canvas id="cmp${i}"></canvas>`); grid.appendChild(box);
     });
-    body.appendChild(el('section', null, `<h2>Ключевые метрики</h2><p class="lead">Игр в выборке: ${data.map(d => esc(d.p.name) + ' - ' + d.M.n).join(', ')}. Винрейт показан с 95% интервалом в таблице ниже.</p>`)).appendChild(grid);
+    body.appendChild(el('section', null, `<h2>Главные цифры</h2><p class="lead">В выборке: ${data.map(d => esc(d.p.name) + ' - ' + games(d.M.n)).join(', ')}.</p>`)).appendChild(grid);
     charts.forEach(([title, fn, isPct], i) => barChart($('#cmp' + i), labels, [{ data: data.map(fn), backgroundColor: data.map(d => d.color), borderRadius: 4, maxBarThickness: 48 }], { pct: isPct }));
-    // таблица
     const row = (name, fn) => `<tr><td>${name}</td>${data.map(d => `<td class="num">${fn(d.M)}</td>`).join('')}</tr>`;
-    body.insertAdjacentHTML('beforeend', `<section><h2>Таблица</h2><div class="tscroll" style="padding:0"><table class="cmp-table"><tr><th>метрика</th>${data.map(d => `<th class="num"><span class="dot" style="background:${d.color}"></span> ${esc(d.p.name)}</th>`).join('')}</tr>
+    body.insertAdjacentHTML('beforeend', `<section><h2>Все метрики таблицей</h2><div class="tscroll sticky-first"><table class="cmp-table"><tr><th>метрика</th>${data.map(d => `<th class="num"><span class="dot" style="background:${d.color}"></span> ${esc(d.p.name)}</th>`).join('')}</tr>
       ${row('игр', m => m.n)}${row('винрейт', m => pct(m.wr) + ` <span class="mini">${pct(m.ci[1])}-${pct(m.ci[2])}</span>`)}${row('убийства / смерти / помощь', m => f1(m.kills) + ' / ' + f1(m.deaths) + ' / ' + f1(m.assists))}${row('KDA', m => f1(m.kda))}
-      ${row('игр с 10+ смертями', m => pct(m.share10))}${row('игр с 6 и меньше смертями', m => pct(m.shareLe6))}${row('GPM / XPM', m => f0(m.gpm) + ' / ' + f0(m.xpm))}${row('добитых в минуту', m => f1(m.lhpm))}${row('урон по героям', m => f0(m.hero_damage))}${row('урон по башням', m => f0(m.tower_damage))}
-      ${row('средняя игра, мин', m => f1(m.duration))}${row('разных героев', m => m.distinct)}${row('доля топ-3 героев', m => pct(m.top3))}${row('самые частые герои', m => m.topHeroes)}${row('пати из 5', m => m.party5 ? pct(m.party5.wr) + ` <span class="mini">${m.party5.n} игр</span>` : '-')}${row('соло', m => m.solo ? pct(m.solo.wr) + ` <span class="mini">${m.solo.n} игр</span>` : '-')}</table></div></section>`);
+      ${row('игр с 10+ смертями', m => pct(m.share10))}${row('игр с 6 и меньше смертями', m => pct(m.shareLe6))}${row('золото / опыт в минуту', m => f0(m.gpm) + ' / ' + f0(m.xpm))}${row('добитых в минуту', m => f1(m.lhpm))}${row('урон по героям', m => f0(m.hero_damage))}${row('урон по башням', m => f0(m.tower_damage))}
+      ${row('средняя игра, минут', m => f1(m.duration))}${row('разных героев', m => m.distinct)}${row('доля трех самых частых героев', m => pct(m.top3))}${row('самые частые герои', m => m.topHeroes)}${row('в пати из 5', m => m.party5 ? pct(m.party5.wr) + ` <span class="mini">${games(m.party5.n)}</span>` : '-')}${row('соло', m => m.solo ? pct(m.solo.wr) + ` <span class="mini">${games(m.solo.n)}</span>` : '-')}</table></div><p class="src">Маленькие серые цифры рядом с винрейтом - разброс из-за случайности.</p></section>`);
     // форма
     const roll = data.map(d => { const asc = d.all.slice().sort((a, b) => a.start_time - b.start_time).slice(-300); const buf = [], pts = []; asc.forEach(m => { buf.push(m.win); if (buf.length > 30) buf.shift(); if (buf.length >= 10) pts.push({ x: m.start_time, y: buf.reduce((a, b) => a + b, 0) / buf.length }); }); return pts; });
     const allX = [...new Set(roll.flat().map(p => p.x))].sort((a, b) => a - b);
     if (allX.length > 5) {
-      body.insertAdjacentHTML('beforeend', `<section><h2>Форма</h2><p class="lead">Скользящий винрейт по последним 30 играм каждого, последние 300 игр режима (без фильтра периода).</p><div class="chart cv" style="height:280px"><canvas id="formChart"></canvas></div></section>`);
+      body.insertAdjacentHTML('beforeend', `<section><h2>Как идет форма у каждого</h2><p class="lead">Винрейт по последним 30 играм на каждую дату, последние 300 игр режима. Период выше на этот график не влияет.</p><div class="chart cv" style="height:280px"><canvas id="formChart"></canvas></div></section>`);
       const step = Math.max(1, Math.floor(allX.length / 120));
       const xs = allX.filter((_, i) => i % step === 0);
       const ds = data.map((d, i) => { const pts = roll[i]; let j = 0; return { label: d.p.name, borderColor: d.color, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: .25, spanGaps: true, data: xs.map(x => { while (j < pts.length - 1 && pts[j + 1].x <= x) j++; return (pts.length && pts[j].x <= x) ? pts[j].y : null; }) }; });
@@ -327,16 +351,15 @@
     if (data.length >= 2) {
       const sets = data.map(d => new Map(d.ms.map(m => [m.match_id, m])));
       const common = [...sets[0].keys()].filter(id => sets.every(s => s.has(id)) && new Set(data.map((d, i) => sets[i].get(id).is_radiant)).size === 1);
-      const wrTog = common.length ? common.filter(id => sets[0].get(id).win).length / common.length : null;
-      const perPlayer = data.map((d, i) => { const tog = common.map(id => sets[i].get(id)); const apart = d.ms.filter(m => !sets.every(s => s.has(m.match_id))); const a = k => tog.length ? tog.reduce((x, m) => x + m[k], 0) / tog.length : null; const aw = apart.length ? apart.filter(m => m.win).length / apart.length : null; return `<tr><td><span class="dot" style="background:${d.color}"></span> ${esc(d.p.name)}</td><td class="num">${f1(a('kills'))} / ${f1(a('deaths'))} / ${f1(a('assists'))}</td><td class="num">${f1(d.M.deaths)}</td><td class="num">${apart.length ? pct(aw) + ` <span class="mini">${apart.length} игр</span>` : '-'}</td></tr>`; }).join('');
-      // попарная матрица
-      const pairRows = data.map((a, i) => `<tr><td>${esc(a.p.name)}</td>${data.map((b, j) => { if (i === j) return '<td class="muted">-</td>'; const ids = [...sets[i].keys()].filter(id => sets[j].has(id) && sets[i].get(id).is_radiant === sets[j].get(id).is_radiant); const w = ids.filter(id => sets[i].get(id).win).length; return `<td>${ids.length ? pct(w / ids.length) + `<br><span class="mini">${ids.length} игр</span>` : '0'}</td>`; }).join('')}</tr>`).join('');
-      body.insertAdjacentHTML('beforeend', `<section><h2>Вместе</h2><p class="lead">Игры, где все отмеченные были в одной команде: <b>${common.length}</b>${common.length ? `, винрейт вместе <b>${pct(wrTog)}</b> (ДИ ${pct(wilson(common.filter(id => sets[0].get(id).win).length, common.length)[1])}-${pct(wilson(common.filter(id => sets[0].get(id).win).length, common.length)[2])})` : ''}.</p>
-        <div class="grid2"><div class="chart"><h4>В общих играх</h4><div class="tscroll" style="padding:0"><table><tr><th>игрок</th><th class="num">K/D/A вместе</th><th class="num">смертей в среднем (все игры)</th><th class="num">винрейт без остальных</th></tr>${perPlayer}</table></div></div>
-        <div class="chart"><h4>Попарно: винрейт и число общих игр</h4><div class="tscroll" style="padding:0"><table class="matrix"><tr><th></th>${data.map(d => `<th>${esc(d.p.name)}</th>`).join('')}</tr>${pairRows}</table></div></div></div></section>`);
+      const cw = common.filter(id => sets[0].get(id).win).length;
+      const perPlayer = data.map((d, i) => { const tog = common.map(id => sets[i].get(id)); const apart = d.ms.filter(m => !sets.every(s => s.has(m.match_id))); const a = k => tog.length ? tog.reduce((x, m) => x + m[k], 0) / tog.length : null; const aw = apart.length ? apart.filter(m => m.win).length / apart.length : null; return `<tr><td><span class="dot" style="background:${d.color}"></span> ${esc(d.p.name)}</td><td class="num">${f1(a('kills'))} / ${f1(a('deaths'))} / ${f1(a('assists'))}</td><td class="num">${f1(d.M.deaths)}</td><td class="num">${apart.length ? pct(aw) + ` <span class="mini">${games(apart.length)}</span>` : '-'}</td></tr>`; }).join('');
+      const pairRows = data.map((a, i) => `<tr><td>${esc(a.p.name)}</td>${data.map((b, j) => { if (i === j) return '<td class="muted">-</td>'; const ids = [...sets[i].keys()].filter(id => sets[j].has(id) && sets[i].get(id).is_radiant === sets[j].get(id).is_radiant); const w = ids.filter(id => sets[i].get(id).win).length; return `<td>${ids.length ? pct(w / ids.length) + `<br><span class="mini">${games(ids.length)}</span>` : '0'}</td>`; }).join('')}</tr>`).join('');
+      body.insertAdjacentHTML('beforeend', `<section><h2>Что получается вместе</h2><p class="lead">Игр, где все отмеченные были в одной команде: <b>${common.length}</b>${common.length ? `, выиграно <b>${pct(cw / common.length)}</b> (разброс ${pct(wilson(cw, common.length)[1])}-${pct(wilson(cw, common.length)[2])})` : ''}.</p>
+        <div class="grid2"><div class="chart"><h4>Каждый в общих играх</h4><div class="tscroll sticky-first"><table><tr><th>игрок</th><th class="num">K/D/A вместе</th><th class="num">смертей обычно</th><th class="num">винрейт без остальных</th></tr>${perPlayer}</table></div></div>
+        <div class="chart"><h4>Парами: винрейт и число общих игр</h4><div class="tscroll sticky-first"><table class="matrix"><tr><th></th>${data.map(d => `<th>${esc(d.p.name)}</th>`).join('')}</tr>${pairRows}</table></div></div></div></section>`);
     }
   }
 
-  window.DC = { state, esc, el, dt, pct, f1, f0, heroName, lineChart, barChart, barRow, wilson, SLOT, cssVar, route, getJSON };
+  window.DC = { state, esc, el, dt, pct, f1, f0, games, heroName, lineChart, barChart, barRow, reliChip, wilson, SLOT, cssVar, route, getJSON };
   boot();
 })();
