@@ -275,7 +275,9 @@ def analyze_mode(ms, agg_mode, parsed, heroes, mode):
 
     # --- разобранные матчи (слои 3, 4, 6, журнал)
     prows = [v for v in parsed.values() if v.get("parsed") and mode_of({"game_mode": v.get("game_mode"), "lobby_type": v.get("lobby_type")}) == mode]
-    parsed_block = {"n": len(prows), "pending": sum(1 for v in parsed.values() if not v.get("parsed"))}
+    now = time.time()
+    parsed_block = {"n": len(prows), "pending": sum(1 for v in parsed.values() if not v.get("parsed") and (now - (v.get("start_time") or 0)) < 14 * 86400),
+                    "too_old": sum(1 for v in parsed.values() if not v.get("parsed") and (now - (v.get("start_time") or 0)) >= 14 * 86400)}
     if prows:
         def wr_of(sub):
             return {"n": len(sub), "wins": sum(1 for r in sub if r["win"]), "wr": (sum(1 for r in sub if r["win"]) / len(sub)) if sub else None}
@@ -375,6 +377,8 @@ def analyze_mode(ms, agg_mode, parsed, heroes, mode):
     findings = []
     rec_lookup = {(t["title"], r["group"]): r for t in recent["tables"] for r in t["rows"]}
     for t in T:
+        if t["title"] == "По месяцам":
+            continue  # календарные срезы - не совет
         for r in t["rows"]:
             if r["p"] is not None and r["p"] < 0.01 and r["n"] >= 15 and abs(r["wr"] - base) >= 0.08:
                 rr = rec_lookup.get((t["title"], r["group"]))
