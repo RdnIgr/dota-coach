@@ -54,6 +54,7 @@
     const nav = $('#nav'); nav.innerHTML = '';
     state.players.forEach(p => nav.appendChild(el('button', { class: 'tab' + (p.exposed ? '' : ' off'), 'data-slug': p.slug, type: 'button', title: p.exposed ? '' : 'статистика закрыта' }, esc(p.name))));
     nav.appendChild(el('button', { class: 'tab', 'data-slug': 'compare', type: 'button' }, 'Сравнение'));
+    nav.appendChild(el('button', { class: 'tab', 'data-slug': 'match', type: 'button' }, 'Разбор матча'));
     nav.addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) location.hash = b.dataset.slug; });
   }
   function renderFooter() {
@@ -63,10 +64,10 @@
   function route() {
     state.charts.forEach(c => { try { c.destroy(); } catch (e) { } }); state.charts = [];
     const h = (location.hash || '').replace('#', '');
-    const slug = state.players.some(p => p.slug === h) ? h : (h === 'compare' ? 'compare' : state.players[0].slug);
+    const slug = state.players.some(p => p.slug === h) ? h : (h === 'compare' ? 'compare' : (h.startsWith('match') ? 'match' : state.players[0].slug));
     document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.slug === slug)));
     const app = $('#app'); app.innerHTML = '';
-    if (slug === 'compare') renderCompare(app); else renderPlayer(app, state.players.find(p => p.slug === slug));
+    if (slug === 'compare') renderCompare(app); else if (slug === 'match') { if (window.renderMatch) window.renderMatch(app); } else renderPlayer(app, state.players.find(p => p.slug === slug));
     window.scrollTo(0, 0);
   }
 
@@ -132,6 +133,8 @@
     if (!modes.includes(state.mode)) state.mode = modes[0];
     const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Режим' });
     modes.forEach(m => { const b = el('button', { type: 'button', 'aria-pressed': String(m === state.mode) }, `${MODE_NAMES[m] || m} · ${an.modes[m].summary.n}`); b.addEventListener('click', () => { state.mode = m; route(); }); seg.appendChild(b); });
+    seg.insertAdjacentHTML('beforeend', `<a class="btn primary" href="#match" style="text-decoration:none" data-pick="${p.account_id}">Свежие игры и разбор матча</a>`);
+    seg.querySelector('[data-pick]').addEventListener('click', () => { if (window.DCMatchPick) window.DCMatchPick(p.account_id); });
     app.appendChild(seg);
     const M = an.modes[state.mode], S = M.summary, H = M.history;
     const base = S.wr;
@@ -327,5 +330,6 @@
     }
   }
 
+  window.DC = { state, esc, el, dt, pct, f1, f0, heroName, lineChart, barChart, barRow, wilson, SLOT, cssVar, route };
   boot();
 })();

@@ -115,3 +115,17 @@ td.num,th.num{text-align:right}
 .mini{font-size:12px;color:var(--muted)}
 footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:16px;max-width:72ch}
 @media (prefers-reduced-motion:no-preference){.bfill{transition:width .4s ease}}
+
+/* разбор матча */
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.mctl{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end;margin-bottom:14px}
+.mctl label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.mctl select,.mctl input{font:15px var(--font-body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:180px}
+tr.fresh td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+tr.focusrow td{background:color-mix(in srgb,var(--accent) 12%,transparent);font-weight:600}
+.mhead{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 18px}
+.score{display:flex;align-items:center;gap:18px;font-family:var(--font-display);font-size:22px;margin-bottom:8px;flex-wrap:wrap}
+.score b{font-size:34px;margin:0 6px}
+.score .side.won{color:var(--good-text)}
+.score .vs{font-family:var(--font-mono);font-size:16px;color:var(--muted)}
+.verdict ul.plain li.ok{color:var(--good-text)}.verdict ul.plain li.no{color:var(--bad-text)}
