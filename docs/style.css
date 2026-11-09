@@ -263,3 +263,12 @@ section[id^="sec-"],.two[id^="sec-"]{scroll-margin-top:112px}
 .rev .hicon{width:40px;height:40px;border-radius:8px;margin-top:2px}
 .rev .hero{flex:none}
 .tscroll .hero{white-space:nowrap}
+details.recent{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:0 0 22px;padding:0 14px}
+details.recent>summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;font-weight:600;font-size:15px}
+details.recent>summary::-webkit-details-marker{display:none}
+details.recent>summary::before{content:"";width:8px;height:8px;border-right:2px solid var(--ink2);border-bottom:2px solid var(--ink2);transform:rotate(-45deg);margin-right:8px;flex:none;transition:transform .15s}
+details.recent[open]>summary::before{transform:rotate(45deg)}
+details.recent>summary>span:first-of-type{flex:1}
+details.recent #mList{padding:4px 0 12px}
+details.recent #mList .tscroll{margin-bottom:0!important}
+details.mini summary{cursor:pointer;color:var(--accent)}

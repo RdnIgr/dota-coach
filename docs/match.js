@@ -38,9 +38,12 @@
       <label>Или номер матча (из Dota 2 или OpenDota) <input id="mId" inputmode="numeric" placeholder="например, 9080754345" value="${m ? m[1] : (S.match ? S.match.match_id : '')}"></label>
       <button class="btn primary" id="mGo" type="button">Разобрать этот матч</button>`;
     app.appendChild(ctl);
-    const list = el('div', { id: 'mList' }); app.appendChild(list);
+    const wrap = el('details', { class: 'recent' }); if (!m && !S.match) wrap.setAttribute('open', '');
+    wrap.innerHTML = `<summary><span>Последние игры${S.player ? ': ' + esc((state.byAcc[S.player] || {}).name || '') : ''}</span><span class="mini">нажми, чтобы ${m || S.match ? 'раскрыть' : 'свернуть'} список</span></summary>`;
+    const list = el('div', { id: 'mList' }); wrap.appendChild(list); app.appendChild(wrap);
+    wrap.addEventListener('toggle', () => { const hint = wrap.querySelector('summary .mini'); if (hint) hint.textContent = 'нажми, чтобы ' + (wrap.open ? 'свернуть' : 'раскрыть') + ' список'; });
     const out = el('div', { id: 'mOut' }); app.appendChild(out);
-    ctl.querySelector('#mPlayer').addEventListener('change', e => { S.player = +e.target.value; renderRecent(list); });
+    ctl.querySelector('#mPlayer').addEventListener('change', e => { S.player = +e.target.value; wrap.querySelector('summary span').textContent = 'Последние игры: ' + ((state.byAcc[S.player] || {}).name || ''); wrap.open = true; if (S.recent[S.player]) renderRecent(list); else loadRecent(list, false); });
     ctl.querySelector('#mRefresh').addEventListener('click', () => loadRecent(list, true));
     ctl.querySelector('#mGo').addEventListener('click', () => { const id = ctl.querySelector('#mId').value.trim(); if (/^\d{6,}$/.test(id)) { location.hash = 'match/' + id; } });
     if (S.recent[S.player]) renderRecent(list); else loadRecent(list, false);
@@ -176,7 +179,8 @@
     const tl = (rev.timeline || []).map(x => `<div class="card"><h4>${esc(x.phase)}</h4><p>${esc(x.text)}</p></div>`).join('');
     const km = (rev.key_moments || []).map(x => `<li>${esc(x)}</li>`).join('');
     const adv = (rev.advice || []).map((x, i) => `<article class="plan"><div class="plan-no">Правка ${i + 1}</div><h4>${esc(x.what)}</h4><dl><dt>Почему</dt><dd>${esc(x.why)}</dd><dt>Что меряем</dt><dd>${esc(x.metric)}</dd></dl></article>`).join('');
-    box.innerHTML = `<section class="aibox"><h2>Разбор тренера ${AI}</h2><p class="lead" style="margin:0 0 10px">${D().hero(rev.hero_id)} · ${esc(t.name)} · позиция: ${esc(rev.position || '-')} · влияние на исход: <b>${esc(rev.severity || '-')}</b></p>
+    const pos = String(rev.position || '-'); const dot = pos.search(/[.!?]\s/); const posShort = dot > 0 ? pos.slice(0, dot + 1) : pos; const posRest = dot > 0 ? pos.slice(dot + 1).trim() : '';
+    box.innerHTML = `<section class="aibox"><h2>Разбор тренера ${AI}</h2><p class="lead" style="margin:0 0 ${posRest ? '4' : '10'}px">${D().hero(rev.hero_id)} · ${esc(t.name)} · позиция: ${esc(posShort)} · влияние на исход: <b>${esc(rev.severity || '-')}</b></p>${posRest ? `<details class="mini" style="margin:0 0 10px"><summary>Как тренер определил позицию</summary><p style="margin:4px 0 0">${esc(posRest)}</p></details>` : ''}
       <div class="verdict"><p><b>${esc(rev.verdict)}</b></p><p class="mini" style="margin-top:8px">Текст написан моделью по числам из записи игры, ей запрещено их придумывать. Все цифры можно проверить в таблицах ниже.</p></div>
       <div class="three" style="margin-top:12px">${tl}</div>
       <h3 style="margin-top:14px">Смерти: что было разменом, а что ошибкой</h3><p class="lead" style="max-width:72ch">${esc(rev.deaths || '')}</p>
