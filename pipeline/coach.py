@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Тренер на модели. Числа считает код (analyze.py / fetch.py), модель пишет выводы.
+Запуск по расписанию: .github/workflows/review.yml (каждый час) и update.yml (отчеты, каждые 3 часа).
 
   python pipeline/coach.py report            - отчет тренера по игроку (когда нет отчета или прошло 30+ рейтинговых игр)
   python pipeline/coach.py report --force    - перегенерировать всем
