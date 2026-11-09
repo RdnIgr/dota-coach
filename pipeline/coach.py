@@ -173,7 +173,8 @@ def make_report(p, an, prev, force=False):
     if not r:
         return None, "нет рейтинговых игр"
     n = r["summary"]["n"]
-    if prev and not force:
+    if prev and not force and prev.get("source") == "ai":
+        # отчет, написанный вручную (source != "ai"), модель заменяет своим при первом же запуске
         since = n - (prev.get("report_games_at") or 0)
         if prev.get("report_games_at") and since < REPORT_EVERY_GAMES:
             return None, f"с прошлого отчета {since} игр, нужно {REPORT_EVERY_GAMES}"

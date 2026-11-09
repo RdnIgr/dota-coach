@@ -30,7 +30,7 @@ button{font-family:inherit}
 :is(.tab,.theme,.seg button,.btn,summary,input,select,a):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 
 /* шапка и вкладки */
-.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;margin-bottom:18px}
+.top{position:sticky;top:0;z-index:6;background:var(--bg);border-bottom:1px solid var(--line);display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;margin-bottom:18px}
 .brand{font-family:var(--font-display);font-weight:600;letter-spacing:.03em;font-size:13px;color:var(--ink2);text-transform:uppercase;text-decoration:none;white-space:nowrap}
 .tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;padding:2px;margin:-2px;min-width:0}
 .tabs::-webkit-scrollbar{display:none}
@@ -195,3 +195,71 @@ tr.focusrow td{background:color-mix(in srgb,var(--accent) 12%,transparent);font-
 footer{color:var(--muted);font-size:13.5px;border-top:1px solid var(--line);padding-top:16px;max-width:70ch;line-height:1.5}
 @media (prefers-reduced-motion:no-preference){.bfill{transition:width .4s cubic-bezier(.2,.7,.2,1)}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* ---- иконки Dota 2: герои, предметы, медали ---- */
+.hero{display:inline-flex;align-items:center;gap:6px;vertical-align:middle;white-space:nowrap}
+.hicon{width:24px;height:24px;border-radius:5px;background:var(--chip);object-fit:cover;flex:none}
+.hicon.big{width:64px;height:36px;border-radius:6px}
+.item{display:inline-flex;align-items:center;gap:6px;vertical-align:middle}
+.item img{width:36px;height:27px;border-radius:4px;background:var(--chip);object-fit:cover;flex:none}
+.item b{font-family:var(--font-mono);font-weight:600}
+.meta .item{padding:4px 8px 4px 4px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:13.5px}
+.medal{position:relative;display:inline-block;vertical-align:middle;flex:none}
+.medal img{position:absolute;inset:0;width:100%;height:100%}
+.tab-ava{width:22px;height:22px;border-radius:50%;object-fit:cover;vertical-align:-6px;margin-right:6px;background:var(--chip)}
+.tab{display:inline-flex;align-items:center}
+.tab .tab-ava{vertical-align:middle}
+.tab[aria-selected="true"] .tab-ava{outline:2px solid var(--bg)}
+.checks label .tab-ava{margin:0 2px 0 -2px}
+
+/* метка ИИ-тренера */
+.ai{display:inline-flex;align-items:center;gap:5px;vertical-align:middle;background:var(--accent);color:#fff;border-radius:999px;padding:3px 10px 3px 8px;font:600 12px/1.2 var(--font-body);letter-spacing:.01em;margin-left:6px;white-space:nowrap}
+.ai svg{width:13px;height:13px;fill:currentColor}
+.ai.manual{background:var(--chip);color:var(--ink2)}
+h2 .ai{position:relative;top:-2px}
+.aibox{border:1px solid var(--accent);border-radius:12px;padding:16px 18px;margin:0 0 28px;background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.aibox .verdict{margin-bottom:0}
+.aibox h2{margin-top:0}
+
+/* обзор */
+.pcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:28px}
+.pcard{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--surface);text-decoration:none;color:inherit;transition:border-color .15s}
+.pcard .avatar{width:56px;height:56px}
+.pcard-body{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1}
+.pcard-body>b{font:600 17px/1.2 var(--font-display)}
+.pcard-rank{display:flex;align-items:center;gap:6px}
+.pcard-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px}
+.pcard-stats span{display:flex;flex-direction:column}
+.pcard-stats b{font:600 20px/1.1 var(--font-mono)}
+.pcard-stats small{font-size:11.5px;color:var(--muted);line-height:1.25}
+.pcard-note{font-size:14px;color:var(--ink2);line-height:1.4}
+.pcard-foot{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.pcard-foot .ai{margin-left:0}
+.pcard.off{opacity:.75}
+@media (hover:hover){.pcard:hover{border-color:var(--accent)}}
+.steps{margin:0;padding-left:22px;max-width:72ch;font-size:15.5px;line-height:1.55}
+.steps li{margin-bottom:8px}
+
+/* подменю разделов на странице игрока */
+.subnav{position:sticky;top:57px;z-index:5;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:8px 0;margin:0 0 18px;background:var(--bg);border-bottom:1px solid var(--line)}
+.subnav::-webkit-scrollbar{display:none}
+.subnav a{flex:none;font-size:13.5px;color:var(--ink2);text-decoration:none;padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:var(--surface);min-height:34px;display:inline-flex;align-items:center}
+@media (hover:hover){.subnav a:hover{border-color:var(--accent);color:var(--ink)}}
+section[id^="sec-"],.two[id^="sec-"]{scroll-margin-top:112px}
+
+/* выбор героя на странице матча */
+.focus{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:4px 2px 10px;margin:0 -2px 10px;scroll-snap-type:x proximity}
+.focus::-webkit-scrollbar{display:none}
+.focus button{flex:none;scroll-snap-align:start;display:flex;flex-direction:column;align-items:center;gap:4px;width:92px;padding:8px 6px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);cursor:pointer;font:inherit;border-top:3px solid var(--line)}
+.focus button.rad{border-top-color:#3aa66a}.focus button.dire{border-top-color:#d2553f}
+.focus button .hicon.big{width:72px;height:40px}
+.focus button .fname{font-size:12.5px;font-weight:600;line-height:1.15;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.focus button .fsub{font-size:11px;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.focus button.ours .fsub{color:var(--accent);font-weight:600}
+.focus button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.focus button[aria-pressed="true"] .fsub{color:var(--bg);opacity:.8}
+@media (hover:hover){.focus button:hover{border-color:var(--ink2)}}
+.ours .hero{margin:4px 10px 0 0}
+.rev .hicon{width:40px;height:40px;border-radius:8px;margin-top:2px}
+.rev .hero{flex:none}
+.tscroll .hero{white-space:nowrap}

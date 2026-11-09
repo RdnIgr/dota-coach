@@ -65,9 +65,18 @@
   }
 
   function heroName(id) { const h = state.heroes[String(id)]; return h && h.name ? h.name : ('#' + id); }
+  const CDN = 'https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/';
+  function heroSlug(id) { const h = state.heroes[String(id)]; return h && h.npc ? h.npc.replace('npc_dota_hero_', '') : null; }
+  // Маленькая иконка героя + имя. Картинки - с официального CDN Dota 2, как на OpenDota и Dotabuff.
+  function hero(id, opts) { opts = opts || {}; const slug = heroSlug(id); const name = heroName(id); const img = slug ? `<img class="hicon${opts.big ? ' big' : ''}" src="${CDN}heroes/${opts.big ? '' : 'icons/'}${slug}.png" alt="" loading="lazy" width="${opts.big ? 64 : 24}" height="${opts.big ? 36 : 24}">` : ''; return `<span class="hero">${img}${opts.noName ? '' : `<span>${esc(name)}</span>`}</span>`; }
+  function itemImg(key, label) { return `<span class="item"><img src="${CDN}items/${esc(key)}.png" alt="" loading="lazy" width="36" height="27"><span>${esc(label || key.replace(/_/g, ' '))}</span></span>`; }
+  function medal(tier, size) { if (!tier) return ''; const s = size || 44; return `<span class="medal" style="width:${s}px;height:${s}px" title="${esc(rankName(tier))}"><img src="https://www.opendota.com/assets/images/dota2/rank_icons/rank_icon_${Math.floor(tier / 10)}.png" alt="">${tier % 10 ? `<img src="https://www.opendota.com/assets/images/dota2/rank_icons/rank_star_${tier % 10}.png" alt="">` : ''}</span>`; }
+  function rankName(tier) { if (!tier) return 'без ранга'; const n = { 1: 'Herald', 2: 'Guardian', 3: 'Crusader', 4: 'Archon', 5: 'Legend', 6: 'Ancient', 7: 'Divine', 8: 'Immortal' }[Math.floor(tier / 10)] || '?'; return tier >= 80 ? 'Immortal' : `${n} ${tier % 10}`; }
+  const AI = '<span class="ai" title="Текст написала модель по цифрам с этой страницы; числа она не придумывает"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>ИИ-тренер</span>';
   function renderNav() {
     const nav = $('#nav'); nav.innerHTML = '';
-    state.players.forEach(p => nav.appendChild(el('button', { class: 'tab' + (p.exposed ? '' : ' off'), 'data-slug': p.slug, type: 'button', title: p.exposed ? '' : 'статистика закрыта в настройках Dota 2' }, esc(p.name))));
+    nav.appendChild(el('button', { class: 'tab', 'data-slug': 'home', type: 'button' }, 'Обзор'));
+    state.players.forEach(p => nav.appendChild(el('button', { class: 'tab' + (p.exposed ? '' : ' off'), 'data-slug': p.slug, type: 'button', title: p.exposed ? '' : 'статистика закрыта в настройках Dota 2' }, (p.avatar ? `<img class="tab-ava" src="${esc(p.avatar)}" alt="">` : '') + esc(p.name))));
     nav.appendChild(el('button', { class: 'tab', 'data-slug': 'compare', type: 'button' }, 'Сравнение'));
     nav.appendChild(el('button', { class: 'tab', 'data-slug': 'match', type: 'button' }, 'Разбор матча'));
     nav.addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) location.hash = b.dataset.slug; });
@@ -79,10 +88,10 @@
   function route() {
     state.charts.forEach(c => { try { c.destroy(); } catch (e) { } }); state.charts = [];
     const h = (location.hash || '').replace('#', '');
-    const slug = state.players.some(p => p.slug === h) ? h : (h === 'compare' ? 'compare' : (h.startsWith('match') ? 'match' : state.players[0].slug));
+    const slug = state.players.some(p => p.slug === h) ? h : (h === 'compare' ? 'compare' : (h.startsWith('match') ? 'match' : 'home'));
     document.querySelectorAll('.tab').forEach(t => { const on = t.dataset.slug === slug; t.setAttribute('aria-selected', String(on)); if (on && t.scrollIntoView) t.scrollIntoView({ inline: 'center', block: 'nearest' }); });
     const app = $('#app'); app.innerHTML = '';
-    if (slug === 'compare') renderCompare(app); else if (slug === 'match') { if (window.renderMatch) window.renderMatch(app); } else renderPlayer(app, state.players.find(p => p.slug === slug));
+    if (slug === 'home') renderHome(app); else if (slug === 'compare') renderCompare(app); else if (slug === 'match') { if (window.renderMatch) window.renderMatch(app); } else renderPlayer(app, state.players.find(p => p.slug === slug));
     window.scrollTo(0, 0);
   }
 
@@ -134,13 +143,39 @@
     <p><b>Разобранный реплей</b> - OpenDota прочитала запись игры: оттуда видно золото по минутам, кто кого убил и когда, покупки, варды и драки. Без реплея есть только итоговая таблица матча.</p>
   </div></details>`;
 
+  // ---------- обзор ----------
+  function latestReviews(limit) {
+    const all = [];
+    state.players.forEach(p => (state.reviews[p.account_id] || []).forEach(r => all.push(Object.assign({ player: p }, r))));
+    return all.sort((a, b) => (b.generated || b.start_time || 0) - (a.generated || a.start_time || 0)).slice(0, limit);
+  }
+  function reviewCard(r, withPlayer) {
+    return `<a class="rev" href="#match/${r.match_id}">${hero(r.hero_id, { noName: true })}<span class="rev-body"><span class="rev-title">${withPlayer ? esc(r.player.name) + ' · ' : ''}${esc(heroName(r.hero_id))}${r.kda ? ' <span class="mono">' + r.kda.join('/') + '</span>' : ''} <span class="chip ${r.win ? 'good' : 'bad'}">${r.win ? 'победа' : 'поражение'}</span> <span class="mini">${dt(r.start_time)} · ${esc(r.mode || '')}</span></span><span class="rev-short">${esc(r.short || 'открыть разбор')}</span></span></a>`;
+  }
+  function renderHome(app) {
+    const cards = state.players.map(p => {
+      const an = state.analysis[p.account_id]; const r = an && an.modes && an.modes.ranked; const S = r && r.summary; const R = r && r.recent;
+      const nar = state.narrative[p.account_id]; const revs = state.reviews[p.account_id] || [];
+      if (!p.exposed || !S) return `<a class="pcard off" href="#${p.slug}">${p.avatar ? `<img class="avatar" src="${esc(p.avatar)}" alt="">` : '<span class="avatar"></span>'}<span class="pcard-body"><b>${esc(p.name)}</b><span class="mini">${esc(rankName(p.rank_tier))}</span><span class="pcard-note">Статистика закрыта в Dota 2 - нужно включить Expose Public Match Data</span></span></a>`;
+      return `<a class="pcard" href="#${p.slug}">${p.avatar ? `<img class="avatar" src="${esc(p.avatar)}" alt="">` : '<span class="avatar"></span>'}<span class="pcard-body"><b>${esc(p.name)}</b><span class="pcard-rank">${medal(p.rank_tier, 28)}<span class="mini">${esc(rankName(p.rank_tier))} · последняя игра ${dt(p.last_match)}</span></span>
+        <span class="pcard-stats"><span><b>${pct(S.wr)}</b><small>винрейт, ${games(S.n)}</small></span><span><b>${R ? pct(R.wr) : '-'}</b><small>последние ${R ? R.n : 150}</small></span><span><b>${f1(S.deaths)}</b><small>смертей за игру</small></span></span>
+        <span class="pcard-note">${nar && nar.verdict ? esc(nar.verdict.split(/(?<=\.)\s/)[0]) : 'Вердикт тренера появится, когда наберется 20 рейтинговых игр.'}</span>
+        <span class="pcard-foot">${nar ? AI + ' вердикт есть' : ''}${revs.length ? ` · разборов матчей: ${revs.length}` : ''}</span></span></a>`;
+    }).join('');
+    const feed = latestReviews(8);
+    app.insertAdjacentHTML('beforeend', `<header class="phead"><div class="txt"><h1>Наш стак в цифрах</h1><p class="lead">Сайт собирает статистику пятерых из OpenDota, находит, что на самом деле влияет на результат, а ИИ-тренер пишет по этим цифрам вердикт и разбирает каждую новую игру. Выбери игрока - или открой свежий разбор ниже.</p></div></header>
+      <div class="pcards">${cards}</div>
+      <section><h2>Свежие разборы ${AI}</h2><p class="lead">После каждой игры тренер ждет, пока OpenDota прочитает реплей, и пишет: что решило игру, какие смерти были ошибкой, что исправить в следующих 10 играх.</p>${feed.length ? `<div class="chart list">${feed.map(r => reviewCard(r, true)).join('')}</div>` : '<p class="muted">Разборов пока нет - появятся после ближайших игр.</p>'}</section>
+      <section><h2>Как этим пользоваться</h2><ol class="steps"><li><b>Открой свою вкладку.</b> Сверху - главные цифры и вердикт тренера, ниже - закономерности, герои, привычки и то, что видно по реплеям. Блок «Как читать эти цифры» объясняет пометки.</li><li><b>После игры зайди в «Разбор матча».</b> Там список свежих игр прямо из OpenDota: открой любую - увидишь линию, смерти, предметы, драки, а через час-два и разбор ИИ-тренера.</li><li><b>Раз в 30 рейтинговых игр</b> тренер сам пишет новый отчет с проверкой прошлого плана. В «Сравнении» видно, кто как играет и что получается вместе.</li></ol></section>`);
+  }
+
   // ---------- страница игрока ----------
   function renderPlayer(app, p) {
     const an = state.analysis[p.account_id];
     const nar = state.narrative[p.account_id] || null;
     const head = `<header class="phead">${p.avatar ? `<img class="avatar" src="${esc(p.avatar)}" alt="">` : '<div class="avatar"></div>'}<div class="txt">
       <h1>${esc(p.name)}</h1>
-      <p class="meta"><span class="chip">${esc(p.rank || 'без ранга')}</span><span class="chip">${games(p.matches)} в истории</span>${p.last_match ? `<span class="chip">последняя ${dt(p.last_match)}</span>` : ''}<a class="chip link" href="https://www.opendota.com/players/${p.account_id}" target="_blank" rel="noopener">OpenDota</a><a class="chip link" href="https://steamcommunity.com/profiles/${esc(p.steam_id64)}" target="_blank" rel="noopener">Steam</a></p>
+      <p class="meta">${medal(p.rank_tier, 36)}<span class="chip">${esc(rankName(p.rank_tier))}</span><span class="chip">${games(p.matches)} в истории</span>${p.last_match ? `<span class="chip">последняя ${dt(p.last_match)}</span>` : ''}<a class="chip link" href="https://www.opendota.com/players/${p.account_id}" target="_blank" rel="noopener">OpenDota</a><a class="chip link" href="https://steamcommunity.com/profiles/${esc(p.steam_id64)}" target="_blank" rel="noopener">Steam</a></p>
       ${nar && nar.role ? `<p class="lead" style="margin:0">${esc(nar.role)}</p>` : ''}</div></header>`;
     app.insertAdjacentHTML('beforeend', head);
     if (!p.exposed || !an || an.empty || !an.modes || !Object.keys(an.modes).length) {
@@ -155,8 +190,10 @@
     const M = an.modes[state.mode], S = M.summary, H = M.history, R = M.recent || null;
     const base = S.wr;
     const modeWord = state.mode === 'ranked' ? 'рейтинговых' : state.mode === 'turbo' ? 'турбо' : 'обычных';
-    app.insertAdjacentHTML('beforeend', `<p class="lead intro">Ниже - твоя статистика по ${modeWord} играм: что работает, что сливает игры и что с этим делать. Начни с блока тренера и закономерностей, остальное - подробности.</p>
-      <p class="actions"><a class="btn primary" href="#match" data-pick="${p.account_id}">Разобрать свежую игру</a></p>`);
+    app.insertAdjacentHTML('beforeend', `<p class="lead intro">Ниже - твоя статистика по ${modeWord} играм: что работает, что сливает игры и что с этим делать. Начни с вердикта тренера и закономерностей, остальное - подробности.</p>
+      <p class="actions"><a class="btn primary" href="#match" data-pick="${p.account_id}">Разобрать свежую игру</a></p>
+      <nav class="subnav" aria-label="Разделы страницы">${[['coach', 'Вердикт тренера'], ['reviews', 'Разборы матчей'], ['facts', 'Закономерности'], ['deaths', 'Смерти'], ['heroes', 'Герои'], ['habits', 'Привычки'], ['replays', 'Реплеи']].map(([id, t]) => `<a href="#${p.slug}" data-jump="${id}">${t}</a>`).join('')}</nav>`);
+    app.querySelector('.subnav').addEventListener('click', e => { const a = e.target.closest('[data-jump]'); if (!a) return; e.preventDefault(); const t = document.getElementById('sec-' + a.dataset.jump); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     app.querySelector('[data-pick]').addEventListener('click', () => { if (window.DCMatchPick) window.DCMatchPick(p.account_id); });
     app.insertAdjacentHTML('beforeend', `<div class="tiles">` +
       tile('Винрейт за все время', pct(S.wr), `${games(S.n)} с ${dt(S.first)}; разброс ${pct(S.ci[0])}-${pct(S.ci[1])}`) +
@@ -169,22 +206,24 @@
 
     // тренер
     if (nar && nar.verdict && state.mode === 'ranked') {
-      app.insertAdjacentHTML('beforeend', `<section class="verdict"><h2>Главное от тренера</h2><p>${esc(nar.verdict)}</p>${nar.plan_review ? `<p style="margin-top:8px"><b>Как прошел прошлый план.</b> ${esc(nar.plan_review)}</p>` : ''}<p class="mini" style="margin-top:8px">Отчет от ${esc(nar.report_date || '')}${nar.source === 'ai' ? ' - написан моделью по цифрам с этой страницы' : ' - написан вручную'}. Проверка плана: ${esc(nar.check_date || '')}. Следующий отчет появится сам через 30 рейтинговых игр.</p></section>`);
+      app.insertAdjacentHTML('beforeend', `<section class="verdict" id="sec-coach"><h2>Вердикт тренера ${nar.source === 'ai' ? AI : '<span class="ai manual">написан вручную</span>'}</h2><p>${esc(nar.verdict)}</p>${nar.plan_review ? `<p style="margin-top:8px"><b>Как прошел прошлый план.</b> ${esc(nar.plan_review)}</p>` : ''}<p class="mini" style="margin-top:8px">Отчет от ${esc(nar.report_date || '')}. Проверка плана: ${esc(nar.check_date || '')}. Следующий отчет появится сам через 30 рейтинговых игр. Полный разбор - плюсы, минусы и план - ниже на этой странице.</p></section>`);
+    } else if (state.mode === 'ranked') {
+      app.insertAdjacentHTML('beforeend', `<section class="verdict" id="sec-coach"><h2>Вердикт тренера ${AI}</h2><p class="muted" style="margin:0">Отчета пока нет: тренер пишет его, когда у игрока есть хотя бы 20 рейтинговых игр, и обновляет каждые 30 игр.</p></section>`);
     }
 
     // закономерности
     const fnd = M.findings || [];
-    app.insertAdjacentHTML('beforeend', `<section><h2>Что точно влияет на твой результат</h2><p class="lead">Срезы, где разница с обычным винрейтом ${pct(base)} слишком большая, чтобы быть случайной. Зеленая пометка - то же самое видно и на последних ${R ? R.n : 150} играх, значит, это актуально сейчас.</p><div class="chart list">` +
+    app.insertAdjacentHTML('beforeend', `<section id="sec-facts"><h2>Что точно влияет на твой результат</h2><p class="lead">Срезы, где разница с обычным винрейтом ${pct(base)} слишком большая, чтобы быть случайной. Зеленая пометка - то же самое видно и на последних ${R ? R.n : 150} играх, значит, это актуально сейчас.</p><div class="chart list">` +
       (fnd.length ? fnd.map(f => `<div class="finding"><b>${pct(f.wr)}</b><span>${esc(f.table.toLowerCase())}: <b>${esc(f.group)}</b> - ${games(f.n)}, ${diffWords(f.wr, f.base)}${f.holds_recent === true ? ` <span class="chip good">держится на последних ${f.recent_n}</span>` : f.holds_recent === false ? ` <span class="chip warn">на последних ${f.recent_n} не повторяется</span>` : ''}${CURIOSITY.has(f.table) ? ' <span class="chip muted-chip" title="На это нельзя повлиять, и такие срезы часто оказываются совпадением">любопытно, но не совет</span>' : ''}</span></div>`).join('') : '<p class="muted" style="margin:0">Пока ни один срез не дотянул до «надежно» - нужно больше игр.</p>') + `</div></section>`);
 
     // разборы матчей тренером
     const revs = (state.reviews[p.account_id] || []).slice(0, 12);
-    app.insertAdjacentHTML('beforeend', `<section><h2>Разборы последних матчей</h2><p class="lead">После каждой игры сайт ждет, пока OpenDota прочитает реплей (обычно час-два), и тренер пишет разбор: что решило игру, какие смерти были ошибкой, что исправить в следующих 10 играх.</p>` +
-      (revs.length ? `<div class="chart list">${revs.map(r => `<a class="rev" href="#match/${r.match_id}"><span class="chip ${r.win ? 'good' : 'bad'}">${r.win ? 'победа' : 'поражение'}</span><span class="rev-body"><span class="rev-title">${esc(heroName(r.hero_id))}${r.kda ? ' <span class="mono">' + r.kda.join('/') + '</span>' : ''} <span class="mini">${dt(r.start_time)} · ${esc(r.mode || '')}</span></span><span class="rev-short">${esc(r.short || 'открыть разбор')}</span></span></a>`).join('')}</div>` : '<p class="muted">Разборов пока нет. Первый появится после ближайшей игры.</p>') + `</section>`);
+    app.insertAdjacentHTML('beforeend', `<section id="sec-reviews"><h2>Разборы матчей ${AI}</h2><p class="lead">После каждой игры сайт ждет, пока OpenDota прочитает реплей (обычно час-два), и тренер пишет разбор: что решило игру, какие смерти были ошибкой, что исправить в следующих 10 играх. Нажми на любой.</p>` +
+      (revs.length ? `<div class="chart list">${revs.map(r => reviewCard(r, false)).join('')}</div>` : '<p class="muted">Разборов пока нет. Первый появится после ближайшей игры.</p>') + `</section>`);
 
     // форма
     if (M.series.rolling30.length > 5) {
-      const sec = el('section', null, `<h2>Как идет форма</h2><p class="lead">Винрейт по последним 30 играм на каждую дату. Пунктир - твой обычный винрейт: линия выше него значит, что сейчас ты играешь лучше своего среднего.</p><div class="chart cv" style="height:240px"><canvas id="rollChart"></canvas></div>`);
+      const sec = el('section', { id: 'sec-form' }, `<h2>Как идет форма</h2><p class="lead">Винрейт по последним 30 играм на каждую дату. Пунктир - твой обычный винрейт: линия выше него значит, что сейчас ты играешь лучше своего среднего.</p><div class="chart cv" style="height:240px"><canvas id="rollChart"></canvas></div>`);
       app.appendChild(sec);
       const pts = M.series.rolling30;
       lineChart($('#rollChart'), pts.map(x => dt(x[0])), [
@@ -203,25 +242,25 @@
       if (r) inner += barRow(`последние ${R.n}`, r.wr, r.lo, r.hi, r.n, R.wr, { cls: 's2', row: r });
       if (inner) groups += `<div class="bgroup"><div class="bgroup-title">${k} смертей за игру</div>${inner}</div>`;
     });
-    app.insertAdjacentHTML('beforeend', `<section><h2>Сколько смертей ты можешь себе позволить</h2><p class="lead">Винрейт в зависимости от числа смертей за игру. Честная оговорка: проигранная игра сама по себе дает больше смертей, так что это связь, а не доказанная причина. Где именно ты умираешь, видно по реплеям ниже.</p>
+    app.insertAdjacentHTML('beforeend', `<section id="sec-deaths"><h2>Сколько смертей ты можешь себе позволить</h2><p class="lead">Винрейт в зависимости от числа смертей за игру. Честная оговорка: проигранная игра сама по себе дает больше смертей, так что это связь, а не доказанная причина. Где именно ты умираешь, видно по реплеям ниже.</p>
       <div class="chart">${barLegend(base, `<span><i class="sw s1"></i>все игры</span><span><i class="sw s2"></i>последние ${R ? R.n : 150}</span>`)}${groups}</div>
       <p class="src">Игр с 10 и больше смертями: ${pct(S.share_10plus)} от всех${R ? `, ${pct(R.share_10plus)} среди последних ${R.n}` : ''}. В победах ты умираешь в среднем ${f1(M.deaths.in_wins)} раз, в поражениях ${f1(M.deaths.in_losses)}.</p></section>`);
 
     // тренер: плюсы/минусы/план
     if (nar && state.mode === 'ranked') {
       const cards = (items, kind) => items.map(it => `<article class="card ${kind}"><h4><span class="mark"></span>${esc(it.title)}</h4><p>${esc(it.text)}</p></article>`).join('');
-      app.insertAdjacentHTML('beforeend', `<div class="two"><section><h2>Что у тебя получается</h2>${cards(nar.pluses || [], 'plus')}</section><section><h2>Что сливает игры</h2>${cards(nar.minuses || [], 'minus')}</section></div>`);
+      app.insertAdjacentHTML('beforeend', `<div class="two" id="sec-plan"><section><h2>Что у тебя получается ${AI}</h2>${cards(nar.pluses || [], 'plus')}</section><section><h2>Что сливает игры ${AI}</h2>${cards(nar.minuses || [], 'minus')}</section></div>`);
       const plan = (nar.plan || []).map((x, i) => `<article class="plan"><div class="plan-no">Совет ${i + 1} из ${(nar.plan || []).length}</div><h4>${esc(x.title)}</h4><dl><dt>Что меряем</dt><dd>${esc(x.metric)}</dd><dt>Сейчас</dt><dd>${esc(x.base)}</dd><dt>Цель</dt><dd>${esc(x.target)}</dd><dt>Как</dt><dd>${esc(x.how)}</dd></dl></article>`).join('');
-      app.insertAdjacentHTML('beforeend', `<section><h2>План на следующие 30 рейтинговых игр</h2><p class="lead">Три вещи, на которых стоит сосредоточиться. У каждой есть число, по которому через 30 игр будет видно, сработало или нет. Проверка: ${esc(nar.check_date || '')}.</p><div class="plans">${plan}</div></section>`);
+      app.insertAdjacentHTML('beforeend', `<section><h2>План на следующие 30 рейтинговых игр ${AI}</h2><p class="lead">Три вещи, на которых стоит сосредоточиться. У каждой есть число, по которому через 30 игр будет видно, сработало или нет. Проверка: ${esc(nar.check_date || '')}.</p><div class="plans">${plan}</div></section>`);
       app.insertAdjacentHTML('beforeend', `<div class="two"><section><h2>На что не стоит тратить внимание</h2><p class="lead">Это проверяли - закономерности нет.</p><ul class="plain">${(nar.noise || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></section><section><h2>Вопросы к тебе</h2><p class="lead">Без ответов разбор неполный - напиши их тому, кто ведет сайт.</p><ul class="plain">${(nar.questions || []).map(x => `<li>${esc(x)}</li>`).join('')}</ul></section></div>`);
     }
 
     // герои
     const poolName = x => String(x).split(/\s[-–(]/)[0].trim();
     const keep = new Set(((nar && nar.hero_pool && nar.hero_pool.keep) || []).map(poolName)), drop = new Set(((nar && nar.hero_pool && nar.hero_pool.drop) || []).map(poolName));
-    const heroRows = M.heroes.map((r, i) => `<tr${i >= 12 ? ' class="more" hidden' : ''}><td>${esc(r.hero)}${keep.has(r.hero) ? ' <span class="chip good">в пул</span>' : ''}${drop.has(r.hero) ? ' <span class="chip bad">убрать</span>' : ''}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td>${reliChip(r) || ''}</td><td class="num">${r.recent_n ? r.recent_wins + ' из ' + r.recent_n : '-'}</td><td class="num">${f1(r.k)}/${f1(r.d)}/${f1(r.a)}</td><td class="num">${f0(r.gpm)}</td><td class="num">${f0(r.xpm)}</td><td class="num">${f1(r.lhpm)}</td><td>${(r.roles || []).map(x => x[0] + ' ×' + x[1]).join(', ') || '-'}</td></tr>`).join('');
-    const histHeroes = H && H.heroes ? H.heroes.filter(h => h.n >= 20).map(h => barRow(esc(h.hero), h.wr, h.lo, h.hi, h.n, H.wr, { tag: keep.has(h.hero) ? 'в пул' : (drop.has(h.hero) ? 'убрать' : ''), tagCls: keep.has(h.hero) ? 'good' : 'bad', cls: keep.has(h.hero) ? 'good' : (drop.has(h.hero) ? 'bad' : 's1'), row: h })).join('') : '';
-    app.insertAdjacentHTML('beforeend', `<section><h2>Герои</h2><p class="lead">За все время - ${S.distinct_heroes} разных героев, три самых частых дали ${pct(S.top3_share)} игр${R ? `; за последние ${R.n} игр - ${R.distinct_heroes} героев, топ-3 закрывают ${pct(R.top3_share)}` : ''}. Пометки «в пул» и «убрать» - из плана тренера.</p>
+    const heroRows = M.heroes.map((r, i) => `<tr${i >= 12 ? ' class="more" hidden' : ''}><td>${hero(r.hero_id)}${keep.has(r.hero) ? ' <span class="chip good">в пул</span>' : ''}${drop.has(r.hero) ? ' <span class="chip bad">убрать</span>' : ''}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td>${reliChip(r) || ''}</td><td class="num">${r.recent_n ? r.recent_wins + ' из ' + r.recent_n : '-'}</td><td class="num">${f1(r.k)}/${f1(r.d)}/${f1(r.a)}</td><td class="num">${f0(r.gpm)}</td><td class="num">${f0(r.xpm)}</td><td class="num">${f1(r.lhpm)}</td><td>${(r.roles || []).map(x => x[0] + ' ×' + x[1]).join(', ') || '-'}</td></tr>`).join('');
+    const histHeroes = H && H.heroes ? H.heroes.filter(h => h.n >= 20).map(h => barRow(hero(h.hero_id), h.wr, h.lo, h.hi, h.n, H.wr, { tag: keep.has(h.hero) ? 'в пул' : (drop.has(h.hero) ? 'убрать' : ''), tagCls: keep.has(h.hero) ? 'good' : 'bad', cls: keep.has(h.hero) ? 'good' : (drop.has(h.hero) ? 'bad' : 's1'), row: h })).join('') : '';
+    app.insertAdjacentHTML('beforeend', `<section id="sec-heroes"><h2>Герои</h2><p class="lead">За все время - ${S.distinct_heroes} разных героев, три самых частых дали ${pct(S.top3_share)} игр${R ? `; за последние ${R.n} игр - ${R.distinct_heroes} героев, топ-3 закрывают ${pct(R.top3_share)}` : ''}. Пометки «в пул» и «убрать» - из плана тренера.</p>
       ${heroRows ? `<div class="tscroll sticky-first"><table><tr><th>герой</th><th class="num">игр</th><th class="num">побед</th><th class="num">разброс</th><th>надежность</th><th class="num">последние ${R ? R.n : 150}</th><th class="num">K/D/A</th><th class="num">GPM</th><th class="num">XPM</th><th class="num">доб/мин</th><th>позиция</th></tr>${heroRows}</table></div>${M.heroes.length > 12 ? `<p class="actions" style="margin:10px 0 0"><button class="btn" type="button" data-more>Показать еще ${games(M.heroes.length - 12).replace(/игр[аы]?/, m => ({ 'игра': 'героя', 'игры': 'героя', 'игр': 'героев' })[m])}</button></p>` : ''}<p class="src">В таблице герои с 10 и больше играми. GPM, XPM и добитые в минуту - средние по этим играм.</p>` : '<p class="muted">Пока нет героев с 10 и больше играми.</p>'}
       ${histHeroes ? `<h3 style="margin-top:18px">Герои с 20+ играми за все время</h3><div class="chart">${barLegend(H.wr)}${histHeroes}</div>` : ''}</section>`);
 
@@ -230,7 +269,7 @@
 
     // привычки
     const partyT = M.tables.find(t => t.title === 'Соло или пати'), sideT = M.tables.find(t => t.title === 'Сторона карты'), posT = M.tables.find(t => t.title.startsWith('Позиция'));
-    app.insertAdjacentHTML('beforeend', `<section><h2>Когда и с кем ты играешь лучше</h2><p class="lead">Винрейт по обстоятельствам игры. Смотри на пометки надежности: час старта и сторона карты почти всегда оказываются случайностью.</p><div class="grid2">
+    app.insertAdjacentHTML('beforeend', `<section id="sec-habits"><h2>Когда и с кем ты играешь лучше</h2><p class="lead">Винрейт по обстоятельствам игры. Смотри на пометки надежности: час старта и сторона карты почти всегда оказываются случайностью.</p><div class="grid2">
       ${partyT ? `<div class="chart"><h4>Один или в пати</h4>${barLegend(base)}${barsFromTable(partyT, ['соло', 'пати из 2', 'пати из 3', 'пати из 4', 'пати из 5'])}</div>` : ''}
       ${sideT ? `<div class="chart"><h4>Сторона карты</h4>${barLegend(base)}${barsFromTable(sideT, ['Radiant', 'Dire'])}</div>` : ''}
       ${posT && posT.rows.length ? `<div class="chart"><h4>Позиция (где она известна)</h4>${barLegend(base)}${barsFromTable(posT)}</div>` : ''}
@@ -243,7 +282,7 @@
   function renderParsed(app, M, p) {
     const P = M.parsed || { n: 0 };
     if (!P.n) {
-      app.insertAdjacentHTML('beforeend', `<section><h2>Что видно по реплеям</h2><div class="notice"><p>В этом режиме разобранных реплеев пока нет${P.pending ? ` (${P.pending} ждут очереди в OpenDota)` : ''}. Разбираются только свежие игры, и сайт запрашивает их сам. Как появятся, здесь будет линия на 10 минуте, тайминги предметов, варды и журнал ошибок.</p></div></section>`);
+      app.insertAdjacentHTML('beforeend', `<section id="sec-replays"><h2>Что видно по реплеям</h2><div class="notice"><p>В этом режиме разобранных реплеев пока нет${P.pending ? ` (${P.pending} ждут очереди в OpenDota)` : ''}. Разбираются только свежие игры, и сайт запрашивает их сам. Как появятся, здесь будет линия на 10 минуте, тайминги предметов, варды и журнал ошибок.</p></div></section>`);
       return;
     }
     const L = P.lane || {};
@@ -251,14 +290,14 @@
       ${L.won && L.won.n ? barRow('линия выиграна по золоту', L.won.wr, wilson(L.won.wins, L.won.n)[1], wilson(L.won.wins, L.won.n)[2], L.won.n, M.summary.wr, { row: { n: L.won.n, p: L.p } }) : ''}
       ${L.lost && L.lost.n ? barRow('линия проиграна', L.lost.wr, wilson(L.lost.wins, L.lost.n)[1], wilson(L.lost.wins, L.lost.n)[2], L.lost.n, M.summary.wr, { cls: 's2', row: { n: L.lost.n, p: L.p } }) : ''}
       <p class="src">К 10-й минуте ты в среднем ${L.gd10_avg >= 0 ? 'впереди' : 'позади'} соперника по линии на ${Math.abs(Math.round(L.gd10_avg || 0))} золота (в победах ${f0(L.gd10_wins)}, в поражениях ${f0(L.gd10_losses)}). Добитых к 10 минуте: ${f1(L.lh10_avg)}. Смертей до 10 минуты: ${f1(L.early_deaths_per_game)} за игру${L.early_killers && L.early_killers.length ? '; чаще всего убивали ' + L.early_killers.map(x => x[0] + ' ×' + x[1]).join(', ') : ''}. Позиции в этих играх: ${(L.roles || []).map(x => x[0] + ' ×' + x[1]).join(', ')}.</p></div>`;
-    const items = (P.items || []).length ? `<div class="tscroll sticky-first"><table><tr><th>герой</th><th>предмет</th><th class="num">игр</th><th class="num">минута, в среднем</th><th class="num">в победах</th><th class="num">в поражениях</th></tr>${P.items.map(x => `<tr><td>${esc(x.hero)}</td><td>${esc(x.item.replace(/_/g, ' '))}</td><td class="num">${x.n}</td><td class="num">${f1(x.avg)}</td><td class="num">${f1(x.wins_avg)}</td><td class="num">${f1(x.losses_avg)}</td></tr>`).join('')}</table></div>` : '<p class="muted">Появится, когда наберется 3 разобранных игры на одном герое с одним и тем же предметом.</p>';
+    const items = (P.items || []).length ? `<div class="tscroll sticky-first"><table><tr><th>герой</th><th>предмет</th><th class="num">игр</th><th class="num">минута, в среднем</th><th class="num">в победах</th><th class="num">в поражениях</th></tr>${P.items.map(x => `<tr><td>${esc(x.hero)}</td><td>${itemImg(x.item)}</td><td class="num">${x.n}</td><td class="num">${f1(x.avg)}</td><td class="num">${f1(x.wins_avg)}</td><td class="num">${f1(x.losses_avg)}</td></tr>`).join('')}</table></div>` : '<p class="muted">Появится, когда наберется 3 разобранных игры на одном герое с одним и тем же предметом.</p>';
     const W = P.wards || {};
     const journal = `<div class="tscroll sticky-first"><table><tr><th>что случилось</th><th class="num">в скольких играх</th><th class="num">винрейт с этим</th><th class="num">без этого</th><th>надежность</th></tr>${(P.journal || []).map(j => `<tr><td>${esc(j.flag)}</td><td class="num">${j.n} из ${P.n}</td><td class="num">${pct(j.wr)}</td><td class="num">${pct(j.wr_without)}</td><td>${reliChip({ n: j.n, p: j.p }) || ''}</td></tr>`).join('')}</table></div>`;
     const bm = P.benchmarks_avg_pct || {};
     const bmNames = { gold_per_min: 'золото в минуту', xp_per_min: 'опыт в минуту', kills_per_min: 'убийства', last_hits_per_min: 'добитые', hero_damage_per_min: 'урон по героям', hero_healing_per_min: 'лечение', tower_damage: 'урон по башням', stuns_per_min: 'контроль', lhten: 'добитых к 10 минуте' };
     const bmRows = Object.keys(bm).filter(k => bmNames[k]).map(k => `<div class="brow"><div class="blabel">${bmNames[k]}</div><div class="btrack" title="лучше, чем у ${Math.round(bm[k] * 100)}% игроков на этом герое"><div class="bfill" style="width:${(bm[k] * 100).toFixed(1)}%"></div><div class="bbase" style="left:50%"></div></div><div class="bval"><b>${Math.round(bm[k] * 100)}%</b><span class="bn">игроков позади</span></div></div>`).join('');
-    const recent = (P.matches || []).slice(0, 25).map(m => `<tr><td><a href="#match/${m.match_id}">${dt(m.start_time)}</a></td><td>${esc(heroName(m.hero_id))}</td><td>${LANE[m.lane_role] || '-'}</td><td class="${m.win ? 'ok' : 'no'}">${m.win ? 'победа' : 'поражение'}</td><td class="num">${m.kills}/${m.deaths}/${m.assists}</td><td class="num">${m.gd10 == null ? '-' : (m.gd10 > 0 ? '+' : '') + m.gd10}</td><td class="num">${m.early_deaths}</td><td class="num">${m.deaths_outside_fight}</td><td class="num">${m.obs}/${m.sen}</td><td>${m.thrown ? '<span class="chip bad">слили перевес</span>' : ''}${m.comeback ? '<span class="chip good">камбэк</span>' : ''}</td></tr>`).join('');
-    app.insertAdjacentHTML('beforeend', `<section><h2>Что видно по реплеям</h2><p class="lead">Разобрано ${games(P.n)} этого режима${P.pending ? `, еще ${P.pending} ждут очереди` : ''}${P.too_old ? `, ${P.too_old} старше двух недель и уже не разберутся (Valve хранит реплеи ограниченное время)` : ''}. Это самые точные данные: не итог матча, а то, что происходило внутри.</p>
+    const recent = (P.matches || []).slice(0, 25).map(m => `<tr><td><a href="#match/${m.match_id}">${dt(m.start_time)}</a></td><td>${hero(m.hero_id)}</td><td>${LANE[m.lane_role] || '-'}</td><td class="${m.win ? 'ok' : 'no'}">${m.win ? 'победа' : 'поражение'}</td><td class="num">${m.kills}/${m.deaths}/${m.assists}</td><td class="num">${m.gd10 == null ? '-' : (m.gd10 > 0 ? '+' : '') + m.gd10}</td><td class="num">${m.early_deaths}</td><td class="num">${m.deaths_outside_fight}</td><td class="num">${m.obs}/${m.sen}</td><td>${m.thrown ? '<span class="chip bad">слили перевес</span>' : ''}${m.comeback ? '<span class="chip good">камбэк</span>' : ''}</td></tr>`).join('');
+    app.insertAdjacentHTML('beforeend', `<section id="sec-replays"><h2>Что видно по реплеям</h2><p class="lead">Разобрано ${games(P.n)} этого режима${P.pending ? `, еще ${P.pending} ждут очереди` : ''}${P.too_old ? `, ${P.too_old} старше двух недель и уже не разберутся (Valve хранит реплеи ограниченное время)` : ''}. Это самые точные данные: не итог матча, а то, что происходило внутри.</p>
       <div class="grid2">${lane}<div class="chart"><h4>Карта и активность</h4><p class="src" style="margin:0 0 10px">За игру в среднем: обзорных вардов ${f1(W.obs)}, сентри ${f1(W.sen)}, снято чужих ${f1(W.obs_killed)}, стаков ${f1(W.stacks)}.</p>${bmRows ? `<h4>Сравнение с другими игроками на тех же героях</h4><p class="mini">Полоса - доля игроков, которых ты обходишь. Черта посередине - медиана. Для сапорта низкие золото и добитые - норма, важнее контроль и урон.</p>${bmRows}` : ''}</div></div>
       <h3 style="margin-top:18px">Когда покупаешь ключевые предметы</h3>${items}
       <h3 style="margin-top:18px">Журнал ошибок</h3><p class="lead">Каждая разобранная игра проверяется на типовые ошибки. Сравни винрейт «с этим» и «без этого»: чем больше разрыв, тем дороже ошибка обходится.</p>${journal}
@@ -304,7 +343,7 @@
     app.insertAdjacentHTML('beforeend', `<header class="phead"><div class="txt"><h1>Сравнение</h1><p class="lead">Кто из стака как играет и что получается вместе. Отметь игроков, выбери режим и период - все пересчитается сразу.</p></div></header>`);
     const checks = el('div', { class: 'checks' });
     exposed.forEach((p, i) => {
-      const lab = el('label', null, `<input type="checkbox" ${state.cmp.sel.has(p.account_id) ? 'checked' : ''} data-acc="${p.account_id}"><span class="dot" style="background:var(--${SLOT[i % 5]})"></span>${esc(p.name)}`);
+      const lab = el('label', null, `<input type="checkbox" ${state.cmp.sel.has(p.account_id) ? 'checked' : ''} data-acc="${p.account_id}"><span class="dot" style="background:var(--${SLOT[i % 5]})"></span>${p.avatar ? `<img class="tab-ava" src="${esc(p.avatar)}" alt="">` : ''}${esc(p.name)}`);
       lab.querySelector('input').addEventListener('change', e => {
         if (e.target.checked) state.cmp.sel.add(p.account_id); else if (state.cmp.sel.size > 1) state.cmp.sel.delete(p.account_id); else { e.target.checked = true; return; }
         route();
@@ -360,6 +399,6 @@
     }
   }
 
-  window.DC = { state, esc, el, dt, pct, f1, f0, games, heroName, lineChart, barChart, barRow, reliChip, wilson, SLOT, cssVar, route, getJSON };
+  window.DC = { state, esc, el, dt, pct, f1, f0, games, heroName, hero, itemImg, medal, rankName, AI, lineChart, barChart, barRow, reliChip, wilson, SLOT, cssVar, route, getJSON };
   boot();
 })();
