@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: update-data
+  group: data-writes
   cancel-in-progress: false
 
 jobs:
@@ -39,6 +39,12 @@ jobs:
 
       - name: Анализ
         run: python pipeline/analyze.py
+
+      - name: Отчет тренера (модель; только когда накопилось 30+ новых рейтинговых игр или отчета нет)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          COACH_MODEL: claude-opus-5-5
+        run: python pipeline/coach.py report
 
       - name: Коммит данных
         if: always()

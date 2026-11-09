@@ -12,7 +12,7 @@
   const LANE = { 1: 'сейфлейн', 2: 'мид', 3: 'оффлейн', 4: 'лес' };
   const SLOT = ['s1', 's2', 's3', 's4', 's5'];
 
-  const state = { players: [], byAcc: {}, analysis: {}, narrative: {}, matches: {}, heroes: {}, mode: 'ranked', meta: null,
+  const state = { players: [], byAcc: {}, analysis: {}, narrative: {}, reviews: {}, matches: {}, heroes: {}, mode: 'ranked', meta: null,
     cmp: { sel: null, range: 'all', mode: 'ranked' }, charts: [] };
 
   // ---------- математика ----------
@@ -33,6 +33,7 @@
       await Promise.all(state.players.map(async p => {
         state.analysis[p.account_id] = await getJSON(`data/${p.account_id}/analysis.json`, true);
         state.narrative[p.account_id] = await getJSON(`data/narrative/${p.account_id}.json`, true);
+        state.reviews[p.account_id] = (await getJSON(`data/${p.account_id}/reviews.json`, true)) || [];
       }));
     } catch (e) { $('#app').innerHTML = `<p class="no">Не удалось загрузить данные: ${esc(e.message)}</p>`; return; }
     try { const t = localStorage.getItem('dc-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) { }
@@ -148,11 +149,16 @@
 
     // тренер или автонаходки
     if (nar && nar.verdict && state.mode === 'ranked') {
-      app.insertAdjacentHTML('beforeend', `<section class="verdict"><h2>Главное от тренера</h2><p>${esc(nar.verdict)}</p><p class="mini" style="margin-top:6px">Отчет от ${esc(nar.report_date || '')}. Проверка плана: ${esc(nar.check_date || '')}.</p></section>`);
+      app.insertAdjacentHTML('beforeend', `<section class="verdict"><h2>Главное от тренера</h2><p>${esc(nar.verdict)}</p>${nar.plan_review ? `<p style="margin-top:8px"><b>Проверка прошлого плана.</b> ${esc(nar.plan_review)}</p>` : ''}<p class="mini" style="margin-top:6px">Отчет от ${esc(nar.report_date || '')}${nar.source === 'ai' ? ', написан моделью ' + esc(nar.model || '') + ' по данным выше' : ', написан вручную'}. Проверка плана: ${esc(nar.check_date || '')}. Следующий отчет - автоматически через 30 рейтинговых игр.</p></section>`);
     }
     const fnd = M.findings || [];
     app.insertAdjacentHTML('beforeend', `<section><h2>Что данные говорят сами</h2><p class="lead">Срезы по всем ${S.n} играм режима, где разница с базой ${pct(base)} проходит тест на случайность (p &lt; 0.01, 15+ игр). Отдельно отмечено, повторяется ли разница на последних ${R ? R.n : 150} играх. Остальное - шум или слишком маленькая выборка.</p><div class="chart">` +
       (fnd.length ? fnd.map(f => `<div class="finding"><b>${pct(f.wr)}</b><span>${esc(f.table)}: <b>${esc(f.group)}</b> - ${f.n} игр, против базы ${(f.wr - f.base) * 100 > 0 ? '+' : ''}${Math.round((f.wr - f.base) * 100)} п.п., p=${f.p < 0.001 ? '<0.001' : f.p.toFixed(3)}${f.holds_recent === true ? ` <span class="chip good">держится на последних ${f.recent_n}</span>` : f.holds_recent === false ? ` <span class="chip warn">на последних ${f.recent_n} не подтверждается</span>` : ''}</span></div>`).join('') : '<p class="muted" style="margin:0">Пока ни один срез не прошел порог надежности - мало игр.</p>') + `</div></section>`);
+
+    // разборы матчей тренером
+    const revs = (state.reviews[p.account_id] || []).slice(0, 12);
+    app.insertAdjacentHTML('beforeend', `<section><h2>Разборы последних матчей</h2><p class="lead">Каждый час сбор проверяет новые игры, просит OpenDota разобрать реплей и, когда он готов, модель пишет разбор по методике: позиция, хронология, смерти, ключевые моменты и три правки.</p>` +
+      (revs.length ? `<div class="chart" style="padding:4px 14px">${revs.map(r => `<div class="finding"><span class="chip ${r.win ? 'good' : 'bad'}">${r.win ? 'победа' : 'поражение'}</span><span><b>${dt(r.start_time)}</b> ${esc(heroName(r.hero_id))}${r.kda ? ' ' + r.kda.join('/') : ''} · ${esc(r.mode || '')} · <a href="#match/${r.match_id}">${esc(r.short || 'разбор')}</a>${r.severity ? ` <span class="mini">влияние на исход: ${esc(r.severity)}</span>` : ''}</span></div>`).join('')}</div>` : '<p class="muted">Разборов пока нет: появятся после следующей игры, когда OpenDota разберет реплей (обычно в течение часа-двух после матча).</p>') + `</section>`);
 
     // форма
     if (M.series.rolling30.length > 5) {
@@ -189,7 +195,8 @@
     }
 
     // герои
-    const keep = new Set((nar && nar.hero_pool && nar.hero_pool.keep) || []), drop = new Set((nar && nar.hero_pool && nar.hero_pool.drop) || []);
+    const poolName = x => String(x).split(/\s[-–(]/)[0].trim();
+    const keep = new Set(((nar && nar.hero_pool && nar.hero_pool.keep) || []).map(poolName)), drop = new Set(((nar && nar.hero_pool && nar.hero_pool.drop) || []).map(poolName));
     const heroRows = M.heroes.map(r => `<tr><td>${esc(r.hero)}${keep.has(r.hero) ? ' <span class="chip good">в пул</span>' : ''}${drop.has(r.hero) ? ' <span class="chip bad">убрать</span>' : ''}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td class="num">${r.p == null ? '-' : r.p.toFixed(3)}</td><td class="num">${r.recent_n ? r.recent_wins + '/' + r.recent_n : '-'}</td><td class="num">${f1(r.k)}/${f1(r.d)}/${f1(r.a)}</td><td class="num">${f0(r.gpm)}</td><td class="num">${f0(r.xpm)}</td><td class="num">${f1(r.lhpm)}</td><td>${(r.roles || []).map(x => x[0] + ' x' + x[1]).join(', ') || '-'}</td></tr>`).join('');
     const histHeroes = H && H.heroes ? H.heroes.filter(h => h.n >= 20).map(h => barRow(esc(h.hero), h.wr, h.lo, h.hi, h.n, H.wr, { tag: keep.has(h.hero) ? 'в пул' : (drop.has(h.hero) ? 'убрать' : ''), tagCls: keep.has(h.hero) ? 'good' : 'bad', cls: keep.has(h.hero) ? 'good' : (drop.has(h.hero) ? 'bad' : 's1'), note: 'последняя ' + dt(h.last) })).join('') : '';
     app.insertAdjacentHTML('beforeend', `<section><h2>Герои</h2><p class="lead">За все ${S.n} игр - ${S.distinct_heroes} разных героев, три самых частых дали ${pct(S.top3_share)} игр${R ? `; за последние ${R.n} игр - ${R.distinct_heroes} героев, топ-3 закрывают ${pct(R.top3_share)}` : ''}. Ниже герои с 10+ играми; GPM, XPM и добитые - средние по этим играм.</p>
@@ -330,6 +337,6 @@
     }
   }
 
-  window.DC = { state, esc, el, dt, pct, f1, f0, heroName, lineChart, barChart, barRow, wilson, SLOT, cssVar, route };
+  window.DC = { state, esc, el, dt, pct, f1, f0, heroName, lineChart, barChart, barRow, wilson, SLOT, cssVar, route, getJSON };
   boot();
 })();

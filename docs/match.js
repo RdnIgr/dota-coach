@@ -121,6 +121,8 @@
     html += `<div class="seg" role="group" aria-label="Разбор по игроку">${M.players.map(p => `<button type="button" data-f="${p.account_id || p.player_slot}" aria-pressed="${(p.account_id || p.player_slot) === (focus.account_id || focus.player_slot)}">${esc(heroName(p.hero_id))}${tracked(p.account_id) ? ' · ' + esc(playerName(p)) : ''}</button>`).join('')}</div>`;
     // график золота
     if (parsed && M.radiant_gold_adv) html += `<section><h2>Преимущество по золоту</h2><p class="lead">Плюс - Radiant впереди, минус - Dire. Точки - смерти игрока ${esc(heroName(focus.hero_id))}, заливка под линией показывает, кто вел игру.</p><div class="chart cv" style="height:260px"><canvas id="goldChart"></canvas></div></section>`;
+    // разбор тренера (модель), если есть для этого игрока
+    html += `<div id="aiReview"></div>`;
     // выводы по фокусу
     html += focusBlock(M, focus, tfs, inFight, parsed);
     // драки
@@ -146,6 +148,7 @@
     if (obj.length) html += `<section><h2>Ход игры по объектам</h2><div class="tscroll" style="padding:0"><table><tr><th>минута</th><th>событие</th></tr>${obj.slice(0, 60).map(o => `<tr><td>${mm(o.time)}</td><td>${esc(objText(o, M))}</td></tr>`).join('')}</table></div></section>`;
     out.innerHTML = html;
     out.querySelectorAll('.seg [data-f]').forEach(b => b.addEventListener('click', () => { S.focus = isNaN(+b.dataset.f) ? b.dataset.f : +b.dataset.f; renderMatchView(out); }));
+    renderAiReview(out.querySelector('#aiReview'), M, focus);
     const req = out.querySelector('#mReq'); if (req) req.addEventListener('click', () => { if (!S.poll) requestParse(out); });
     const rc = out.querySelector('#mRecheck'); if (rc) rc.addEventListener('click', () => loadMatch(M.match_id, out));
     if (parsed && M.radiant_gold_adv) {
@@ -157,6 +160,27 @@
         { label: 'золото Radiant - Dire', data: adv, borderColor: cssVar('--s1'), backgroundColor: cssVar('--s1') + '22', fill: 'origin', borderWidth: 2, pointRadius: 0, tension: .2 },
         { label: 'смерти ' + heroName(focus.hero_id), data: pts, borderColor: cssVar('--bad'), backgroundColor: cssVar('--bad'), pointRadius: 5, pointStyle: 'circle', showLine: false }], false);
     }
+  }
+  async function renderAiReview(box, M, focus) {
+    const { esc, heroName, getJSON } = D();
+    if (!box) return;
+    const t = tracked(focus.account_id);
+    if (!t) { box.innerHTML = ''; return; }
+    const rev = await getJSON(`data/${focus.account_id}/reviews/${M.match_id}.json`, true);
+    if (!rev) {
+      const fresh = (Date.now() / 1000 - (M.start_time || 0)) < 14 * 86400;
+      box.innerHTML = `<section><h2>Разбор тренера</h2><p class="muted">Для ${esc(t.name)} в этом матче разбора от модели еще нет. ${fresh ? 'Сбор проверяет новые игры каждый час: как только реплей разобран OpenDota, разбор появится здесь сам.' : 'Матч старше двух недель, реплей уже недоступен - модель разбирает только свежие игры.'}</p></section>`;
+      return;
+    }
+    const tl = (rev.timeline || []).map(x => `<div class="card"><h4>${esc(x.phase)}</h4><p>${esc(x.text)}</p></div>`).join('');
+    const km = (rev.key_moments || []).map(x => `<li>${esc(x)}</li>`).join('');
+    const adv = (rev.advice || []).map((x, i) => `<article class="plan"><div class="plan-no">Правка ${i + 1}</div><h4>${esc(x.what)}</h4><dl><dt>Почему</dt><dd>${esc(x.why)}</dd><dt>Что меряем</dt><dd>${esc(x.metric)}</dd></dl></article>`).join('');
+    box.innerHTML = `<section><h2>Разбор тренера: ${esc(t.name)} на ${esc(heroName(rev.hero_id))}</h2>
+      <div class="verdict"><p><b>${esc(rev.verdict)}</b></p><p class="mini" style="margin-top:6px">Позиция: ${esc(rev.position || '')}</p><p class="mini">Влияние на исход: ${esc(rev.severity || '-')}. Написано моделью ${esc(rev.model || '')} по числам из разобранного реплея.</p></div>
+      <div class="three" style="margin-top:12px">${tl}</div>
+      <h3 style="margin-top:14px">Смерти</h3><p class="lead" style="max-width:none">${esc(rev.deaths || '')}</p>
+      ${km ? `<h3>Ключевые моменты</h3><ul class="plain">${km}</ul>` : ''}
+      <h3 style="margin-top:14px">Три правки на следующие 10 игр</h3><div class="plans">${adv}</div></section>`;
   }
   function objText(o, M) {
     const { heroName } = D();

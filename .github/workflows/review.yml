@@ -1,0 +1,58 @@
+name: coach-review
+
+on:
+  schedule:
+    - cron: "41 * * * *"   # каждый час: свежие матчи -> парс -> разбор тренера
+  workflow_dispatch:
+    inputs:
+      match_id:
+        description: "Номер матча (необязательно)"
+        required: false
+      player:
+        description: "account_id игрока (необязательно)"
+        required: false
+  push:
+    branches: [main]
+    paths:
+      - "pipeline/coach.py"
+      - "pipeline/ai.py"
+      - ".github/workflows/review.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-writes
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Разбор свежих матчей
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENDOTA_API_KEY: ${{ secrets.OPENDOTA_API_KEY }}
+          COACH_MODEL: claude-opus-5-5
+        run: |
+          if [ -n "${{ github.event.inputs.match_id }}" ]; then
+            python pipeline/coach.py review --match "${{ github.event.inputs.match_id }}" ${{ github.event.inputs.player && format('--player {0}', github.event.inputs.player) || '' }}
+          else
+            python pipeline/coach.py review
+          fi
+      - name: Коммит
+        if: always()
+        run: |
+          git config user.name "dota-coach-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/data
+          if git diff --cached --quiet; then echo "изменений нет"; else
+            git commit -m "coach: разборы матчей $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git pull --rebase origin main || true
+            git push
+          fi
