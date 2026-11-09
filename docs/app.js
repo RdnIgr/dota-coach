@@ -59,7 +59,7 @@
   }
   function renderFooter() {
     const m = state.meta;
-    $('#foot').innerHTML = `<p>Данные: открытая статистика OpenDota (история матчей, агрегаты, разобранные реплеи). Обновляется автоматически через GitHub Actions; последнее обновление ${esc(new Date(m.updated * 1000).toLocaleString('ru-RU'))}. Режимы не смешиваются. Доверительные интервалы - Вилсона 95%, тест на случайность - перестановочный; «надежно» - p &lt; 0.01 при 15+ играх, меньше 10 игр - догадка.</p><p>Методика: atlasagents.uk/g/dota-coach.md. Числа считает код (pipeline/analyze.py), текст тренера - отдельно.</p>`;
+    $('#foot').innerHTML = `<p>Данные: открытая статистика OpenDota (история матчей, агрегаты, разобранные реплеи). Обновляется автоматически через GitHub Actions; последнее обновление ${esc(new Date(m.updated * 1000).toLocaleString('ru-RU'))}. Режимы не смешиваются. Доверительные интервалы - Вилсона 95%, тест на случайность - точный тест Фишера; «надежно» - p &lt; 0.01 при 15+ играх, меньше 10 игр - догадка.</p><p>Методика: atlasagents.uk/g/dota-coach.md. Числа считает код (pipeline/analyze.py), текст тренера - отдельно.</p>`;
   }
   function route() {
     state.charts.forEach(c => { try { c.destroy(); } catch (e) { } }); state.charts = [];
@@ -136,13 +136,13 @@
     seg.insertAdjacentHTML('beforeend', `<a class="btn primary" href="#match" style="text-decoration:none" data-pick="${p.account_id}">Свежие игры и разбор матча</a>`);
     seg.querySelector('[data-pick]').addEventListener('click', () => { if (window.DCMatchPick) window.DCMatchPick(p.account_id); });
     app.appendChild(seg);
-    const M = an.modes[state.mode], S = M.summary, H = M.history;
+    const M = an.modes[state.mode], S = M.summary, H = M.history, R = M.recent || null;
     const base = S.wr;
     app.insertAdjacentHTML('beforeend', `<div class="tiles">` +
-      (H ? tile('Вся история', pct(H.wr), `${H.n} игр, ДИ ${pct(H.ci[0])}-${pct(H.ci[1])}`) : '') +
-      tile('Локальная история', pct(S.wr), `${S.n} игр, ${dt(S.first)} - ${dt(S.last)}`) +
+      tile('Все игры режима', pct(S.wr), `${S.n} игр, ДИ ${pct(S.ci[0])}-${pct(S.ci[1])}, с ${dt(S.first)}`) +
+      (R && R.n >= 20 ? tile(`Последние ${R.n}`, pct(R.wr), `ДИ ${pct(R.ci[0])}-${pct(R.ci[1])}, с ${dt(R.first)}`) : '') +
       tile('Последние 50', pct(S.last50_wins / Math.max(1, S.last50_n)), `${S.last50_wins} побед из ${S.last50_n}`) +
-      tile('Смертей за игру', f1(S.deaths), H && H.deaths_avg ? `за историю ${f1(H.deaths_avg)}` : '') +
+      tile('Смертей за игру', f1(S.deaths), R ? `последние ${R.n}: ${f1(R.deaths)}` : '') +
       tile('K / D / A', `${f1(S.kills)} / ${f1(S.deaths)} / ${f1(S.assists)}`, `KDA ${f1(S.kda)}`) +
       (S.gpm ? tile('GPM / XPM', `${f0(S.gpm)} / ${f0(S.xpm)}`, `добитых за игру ${f0(S.lh)}`) : '') + `</div>`);
 
@@ -151,8 +151,8 @@
       app.insertAdjacentHTML('beforeend', `<section class="verdict"><h2>Главное от тренера</h2><p>${esc(nar.verdict)}</p><p class="mini" style="margin-top:6px">Отчет от ${esc(nar.report_date || '')}. Проверка плана: ${esc(nar.check_date || '')}.</p></section>`);
     }
     const fnd = M.findings || [];
-    app.insertAdjacentHTML('beforeend', `<section><h2>Что данные говорят сами</h2><p class="lead">Срезы, где разница с базой ${pct(base)} держится и проходит тест на случайность (p &lt; 0.01, 15+ игр). Остальное - шум или слишком маленькая выборка.</p><div class="chart">` +
-      (fnd.length ? fnd.map(f => `<div class="finding"><b>${pct(f.wr)}</b><span>${esc(f.table)}: <b>${esc(f.group)}</b> - ${f.n} игр, против базы ${(f.wr - f.base) * 100 > 0 ? '+' : ''}${Math.round((f.wr - f.base) * 100)} п.п., p=${f.p.toFixed(3)}</span></div>`).join('') : '<p class="muted" style="margin:0">Пока ни один срез не прошел порог надежности - мало игр.</p>') + `</div></section>`);
+    app.insertAdjacentHTML('beforeend', `<section><h2>Что данные говорят сами</h2><p class="lead">Срезы по всем ${S.n} играм режима, где разница с базой ${pct(base)} проходит тест на случайность (p &lt; 0.01, 15+ игр). Отдельно отмечено, повторяется ли разница на последних ${R ? R.n : 150} играх. Остальное - шум или слишком маленькая выборка.</p><div class="chart">` +
+      (fnd.length ? fnd.map(f => `<div class="finding"><b>${pct(f.wr)}</b><span>${esc(f.table)}: <b>${esc(f.group)}</b> - ${f.n} игр, против базы ${(f.wr - f.base) * 100 > 0 ? '+' : ''}${Math.round((f.wr - f.base) * 100)} п.п., p=${f.p < 0.001 ? '<0.001' : f.p.toFixed(3)}${f.holds_recent === true ? ` <span class="chip good">держится на последних ${f.recent_n}</span>` : f.holds_recent === false ? ` <span class="chip warn">на последних ${f.recent_n} не подтверждается</span>` : ''}</span></div>`).join('') : '<p class="muted" style="margin:0">Пока ни один срез не прошел порог надежности - мало игр.</p>') + `</div></section>`);
 
     // форма
     if (M.series.rolling30.length > 5) {
@@ -166,18 +166,18 @@
 
     // смерти
     const dT = M.tables.find(t => t.section === 'deaths');
-    const hT = H && H.tables.find(t => t.title.startsWith('Смерти за игру'));
+    const rT = R && R.tables.find(t => t.section === 'deaths');
     let groups = '';
     ['0-3', '4-6', '7-9', '10+'].forEach(k => {
-      const r = dT && dT.rows.find(x => x.group === k), h = hT && hT.rows.find(x => x.group === k);
+      const a = dT && dT.rows.find(x => x.group === k), r = rT && rT.rows.find(x => x.group === k);
       let inner = '';
-      if (h) inner += barRow('вся история', h.wr, h.lo, h.hi, h.n, H.wr, { cls: 's1' });
-      if (r) inner += barRow('локальная история', r.wr, r.lo, r.hi, r.n, base, { cls: 's2', note: pNote(r) });
+      if (a) inner += barRow('все игры', a.wr, a.lo, a.hi, a.n, base, { cls: 's1', note: pNote(a) });
+      if (r) inner += barRow(`последние ${R.n}`, r.wr, r.lo, r.hi, r.n, R.wr, { cls: 's2', note: pNote(r) });
       if (inner) groups += `<div class="bgroup"><div class="bgroup-title">${k} смертей</div>${inner}</div>`;
     });
     app.insertAdjacentHTML('beforeend', `<section><h2>Смерти и исход игры</h2><p class="lead">Винрейт по числу смертей за игру. Это связь, а не доказанная причина: проигранная игра сама дает больше смертей. Где именно они случаются, показывают разобранные реплеи ниже.</p>
-      <div class="chart"><div class="legend"><span><i class="sw s1"></i>вся история (OpenDota)</span><span><i class="sw s2"></i>локальная история</span><span><i class="sw base"></i>база</span><span><i class="sw ci"></i>95% ДИ</span></div>${groups}</div>
-      <p class="src">Доля игр с 10+ смертями: ${pct(S.share_10plus)} в локальной истории${H && H.share_10plus != null ? ', ' + pct(H.share_10plus) + ' за всю историю' : ''}. Смертей в победах ${f1(M.deaths.in_wins)}, в поражениях ${f1(M.deaths.in_losses)}.</p></section>`);
+      <div class="chart"><div class="legend"><span><i class="sw s1"></i>все игры режима</span><span><i class="sw s2"></i>последние ${R ? R.n : 150}</span><span><i class="sw base"></i>база</span><span><i class="sw ci"></i>95% ДИ</span></div>${groups}</div>
+      <p class="src">Доля игр с 10+ смертями: ${pct(S.share_10plus)} за все игры${R ? ', ' + pct(R.share_10plus) + ` за последние ${R.n}` : ''}. Смертей в победах ${f1(M.deaths.in_wins)}, в поражениях ${f1(M.deaths.in_losses)}.</p></section>`);
 
     // тренер: плюсы/минусы/план
     if (nar && state.mode === 'ranked') {
@@ -190,11 +190,11 @@
 
     // герои
     const keep = new Set((nar && nar.hero_pool && nar.hero_pool.keep) || []), drop = new Set((nar && nar.hero_pool && nar.hero_pool.drop) || []);
-    const heroRows = M.heroes.map(r => `<tr><td>${esc(r.hero)}${keep.has(r.hero) ? ' <span class="chip good">в пул</span>' : ''}${drop.has(r.hero) ? ' <span class="chip bad">убрать</span>' : ''}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td class="num">${r.p == null ? '-' : r.p.toFixed(3)}</td><td class="num">${f1(r.k)}/${f1(r.d)}/${f1(r.a)}</td><td class="num">${f0(r.gpm)}</td><td class="num">${f0(r.xpm)}</td><td class="num">${f1(r.lhpm)}</td><td>${(r.roles || []).map(x => x[0] + ' x' + x[1]).join(', ') || '-'}</td></tr>`).join('');
+    const heroRows = M.heroes.map(r => `<tr><td>${esc(r.hero)}${keep.has(r.hero) ? ' <span class="chip good">в пул</span>' : ''}${drop.has(r.hero) ? ' <span class="chip bad">убрать</span>' : ''}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num">${pct(r.lo)}-${pct(r.hi)}</td><td class="num">${r.p == null ? '-' : r.p.toFixed(3)}</td><td class="num">${r.recent_n ? r.recent_wins + '/' + r.recent_n : '-'}</td><td class="num">${f1(r.k)}/${f1(r.d)}/${f1(r.a)}</td><td class="num">${f0(r.gpm)}</td><td class="num">${f0(r.xpm)}</td><td class="num">${f1(r.lhpm)}</td><td>${(r.roles || []).map(x => x[0] + ' x' + x[1]).join(', ') || '-'}</td></tr>`).join('');
     const histHeroes = H && H.heroes ? H.heroes.filter(h => h.n >= 20).map(h => barRow(esc(h.hero), h.wr, h.lo, h.hi, h.n, H.wr, { tag: keep.has(h.hero) ? 'в пул' : (drop.has(h.hero) ? 'убрать' : ''), tagCls: keep.has(h.hero) ? 'good' : 'bad', cls: keep.has(h.hero) ? 'good' : (drop.has(h.hero) ? 'bad' : 's1'), note: 'последняя ' + dt(h.last) })).join('') : '';
-    app.insertAdjacentHTML('beforeend', `<section><h2>Герои</h2><p class="lead">Локальная история: ${S.distinct_heroes} разных героев за ${S.n} игр, три самых частых - ${pct(S.top3_share)} игр. Ниже герои с 10+ играми; GPM, XPM и добитые - средние по этим играм.</p>
-      ${heroRows ? `<div class="tscroll" style="padding:0"><table><tr><th>герой</th><th class="num">игр</th><th class="num">винрейт</th><th class="num">95% ДИ</th><th class="num">p</th><th class="num">K/D/A</th><th class="num">GPM</th><th class="num">XPM</th><th class="num">доб/мин</th><th>позиция</th></tr>${heroRows}</table></div>` : '<p class="muted">Нет героев с 10+ играми в локальной истории.</p>'}
-      ${histHeroes ? `<h3 style="margin-top:18px">Вся история, герои с 20+ играми</h3><div class="chart"><div class="legend"><span><i class="sw base"></i>база ${pct(H.wr)}</span><span><i class="sw ci"></i>95% ДИ</span></div>${histHeroes}</div>` : ''}</section>`);
+    app.insertAdjacentHTML('beforeend', `<section><h2>Герои</h2><p class="lead">За все ${S.n} игр - ${S.distinct_heroes} разных героев, три самых частых дали ${pct(S.top3_share)} игр${R ? `; за последние ${R.n} игр - ${R.distinct_heroes} героев, топ-3 закрывают ${pct(R.top3_share)}` : ''}. Ниже герои с 10+ играми; GPM, XPM и добитые - средние по этим играм.</p>
+      ${heroRows ? `<div class="tscroll" style="padding:0"><table><tr><th>герой</th><th class="num">игр</th><th class="num">винрейт</th><th class="num">95% ДИ</th><th class="num">p</th><th class="num">последние ${R ? R.n : 150}: W/игр</th><th class="num">K/D/A</th><th class="num">GPM</th><th class="num">XPM</th><th class="num">доб/мин</th><th>позиция</th></tr>${heroRows}</table></div>` : '<p class="muted">Нет героев с 10+ играми в локальной истории.</p>'}
+      ${histHeroes ? `<h3 style="margin-top:18px">Герои с 20+ играми по агрегатам OpenDota</h3><div class="chart"><div class="legend"><span><i class="sw base"></i>база ${pct(H.wr)}</span><span><i class="sw ci"></i>95% ДИ</span></div>${histHeroes}</div>` : ''}</section>`);
 
     // привычки
     const partyT = M.tables.find(t => t.title === 'Соло или пати'), sideT = M.tables.find(t => t.title === 'Сторона карты'), posT = M.tables.find(t => t.title.startsWith('Позиция'));

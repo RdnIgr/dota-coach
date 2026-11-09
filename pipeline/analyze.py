@@ -3,7 +3,7 @@
 Считает слои анализа (методика METHOD.md) для каждого игрока и режима.
 Вход: docs/data/<id>/{matches,agg,parsed}.json. Выход: docs/data/<id>/analysis.json.
 Только стандартная библиотека. Все доверительные интервалы - Вилсона 95%,
-тест на случайность - перестановочный (двусторонний).
+тест на случайность - точный тест Фишера (двусторонний; для бинарного исхода совпадает с перестановочным).
 """
 import json
 import math
@@ -49,18 +49,30 @@ def wilson(w, n, z=1.96):
     return p, (c - adj) / den, (c + adj) / den
 
 
-def perm_test(a, b, iters=3000):
+def _log_choose(n, k):
+    return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
+
+
+def perm_test(a, b):
+    """Двусторонний точный тест Фишера для двух групп бинарных исходов.
+    Для бинарного исхода это ровно перестановочный тест разницы долей, только без случайности и быстро."""
     na, nb = len(a), len(b)
     if na == 0 or nb == 0:
         return None
-    obs = abs(sum(a) / na - sum(b) / nb)
-    pool = a + b
-    cnt = 0
-    for _ in range(iters):
-        random.shuffle(pool)
-        if abs(sum(pool[:na]) / na - sum(pool[na:]) / nb) >= obs - 1e-12:
-            cnt += 1
-    return (cnt + 1) / (iters + 1)
+    aw, bw = sum(a), sum(b)
+    N, K, n = na + nb, aw + bw, na
+    lo, hi = max(0, K - (N - n)), min(K, n)
+    denom = _log_choose(N, K)
+
+    def lp(x):
+        return _log_choose(n, x) + _log_choose(N - n, K - x) - denom
+    p_obs = lp(aw)
+    total = 0.0
+    for x in range(lo, hi + 1):
+        v = lp(x)
+        if v <= p_obs + 1e-9:
+            total += math.exp(v)
+    return min(1.0, total)
 
 
 def local(ts):
@@ -133,11 +145,12 @@ def table(title, section, rows, base):
 
 
 def dur_bucket(m):
-    d = (m["duration"] or 0) / 60
+    d = (m.get("duration") or 0) / 60
     return "до 25 мин" if d < 25 else "25-35 мин" if d < 35 else "35-45 мин" if d < 45 else "больше 45 мин"
 
 
 def death_bucket(d):
+    d = d or 0
     return "0-3" if d <= 3 else "4-6" if d <= 6 else "7-9" if d <= 9 else "10+"
 
 
@@ -148,6 +161,10 @@ def analyze_mode(ms, agg_mode, parsed, heroes, mode):
     w = sum(m["win"] for m in ms)
     base = w / n
     T = []
+
+    def party(m):
+        ps = m.get("party_size")
+        return "соло" if not ps or ps == 1 else f"пати из {ps}"
     # --- слой 1
     last50 = sorted(ms, key=lambda m: -m["start_time"])[:50]
     def avg(key, sub=None):
@@ -179,9 +196,6 @@ def analyze_mode(ms, agg_mode, parsed, heroes, mode):
     T.append(table("Номер игры в сессии", "habits", group_rows(ms, lambda m: str(min(m["_game_no"], 5)) + ("+" if m["_game_no"] >= 5 else ""), ["1", "2", "3", "4", "5+"]), base))
     T.append(table("Предыдущая игра", "habits", group_rows(ms, lambda m: {None: "первая в сессии", True: "после победы", False: "после поражения"}[m["_prev"]], ["первая в сессии", "после победы", "после поражения"]), base))
     T.append(table("Серия поражений", "habits", group_rows(ms, lambda m: "2+ поражения подряд" if m["_streak"] >= 2 else "нет серии"), base))
-    def party(m):
-        ps = m.get("party_size")
-        return "соло" if not ps or ps == 1 else f"пати из {ps}"
     T.append(table("Соло или пати", "habits", group_rows(ms, party, ["соло", "пати из 2", "пати из 3", "пати из 4", "пати из 5"]), base))
     T.append(table("Сторона карты", "habits", group_rows(ms, lambda m: "Radiant" if m["is_radiant"] else "Dire", ["Radiant", "Dire"]), base))
     T.append(table("Позиция (lane_role из истории)", "habits", group_rows([m for m in ms if m.get("lane_role")], lambda m: LANE_ROLE.get(m["lane_role"], "?"), ["сейфлейн", "мид", "оффлейн", "лес"]), base))
@@ -231,6 +245,7 @@ def analyze_mode(ms, agg_mode, parsed, heroes, mode):
         if hd:
             b = {"0-3": [0, 0], "4-6": [0, 0], "7-9": [0, 0], "10+": [0, 0]}
             tot = 0
+            hd = [r for r in hd if r.get("x") is not None and r.get("games")]
             for r in hd:
                 b[death_bucket(r["x"])][0] += r["games"]
                 b[death_bucket(r["x"])][1] += r["win"]
@@ -240,7 +255,7 @@ def analyze_mode(ms, agg_mode, parsed, heroes, mode):
             history["deaths_avg"] = tot / hn if hn else None
             history["share_10plus"] = sum(r["games"] for r in hd if r["x"] >= 10) / hn if hn else None
             history["share_le6"] = sum(r["games"] for r in hd if r["x"] <= 6) / hn if hn else None
-        hdur = agg_mode.get("hist_duration")
+        hdur = [r for r in (agg_mode.get("hist_duration") or []) if r.get("x") is not None and r.get("games")]
         if hdur:
             b = {"до 25 мин": [0, 0], "25-35 мин": [0, 0], "35-45 мин": [0, 0], "больше 45 мин": [0, 0]}
             for r in hdur:
@@ -322,6 +337,28 @@ def analyze_mode(ms, agg_mode, parsed, heroes, mode):
                     bm[k].append(v)
         parsed_block["benchmarks_avg_pct"] = {k: sum(v) / len(v) for k, v in bm.items()}
 
+    # --- окно последних 150 игр режима: проверка, держится ли закономерность на свежей выборке
+    recent_ms = sorted(ms, key=lambda m: m["start_time"])[-150:]
+    rn = len(recent_ms)
+    rw = sum(m["win"] for m in recent_ms)
+    rbase = rw / rn if rn else 0
+    recent = {"n": rn, "wins": rw, "wr": rbase, "ci": wilson(rw, rn)[1:],
+              "first": recent_ms[0]["start_time"] if rn else None, "last": recent_ms[-1]["start_time"] if rn else None,
+              "kills": avg("kills", recent_ms), "deaths": avg("deaths", recent_ms), "assists": avg("assists", recent_ms),
+              "gpm": avg("gpm", recent_ms), "xpm": avg("xpm", recent_ms),
+              "share_10plus": (sum(1 for m in recent_ms if m["deaths"] >= 10) / rn) if rn else None,
+              "share_le6": (sum(1 for m in recent_ms if m["deaths"] <= 6) / rn) if rn else None,
+              "distinct_heroes": len({m["hero_id"] for m in recent_ms}),
+              "top3_share": (sum(c for _, c in Counter(m["hero_id"] for m in recent_ms).most_common(3)) / rn) if rn else None,
+              "tables": [table("Винрейт по числу смертей", "deaths", group_rows(recent_ms, lambda m: death_bucket(m["deaths"]), ["0-3", "4-6", "7-9", "10+"]), rbase),
+                         table("Соло или пати", "habits", group_rows(recent_ms, party, ["соло", "пати из 2", "пати из 3", "пати из 4", "пати из 5"]), rbase),
+                         table("По длительности игры", "layer1", group_rows(recent_ms, dur_bucket, ["до 25 мин", "25-35 мин", "35-45 мин", "больше 45 мин"]), rbase)],
+              "heroes": [{"hero_id": h, "hero": heroes.get(str(h), {}).get("name", str(h)), "n": c, "wins": sum(1 for m in recent_ms if m["hero_id"] == h and m["win"])}
+                         for h, c in Counter(m["hero_id"] for m in recent_ms).most_common(12)]}
+    for hr in hero_rows:
+        g = [m for m in recent_ms if m["hero_id"] == hr["hero_id"]]
+        hr["recent_n"], hr["recent_wins"] = len(g), sum(m["win"] for m in g)
+
     # --- серии для графиков
     asc = sorted(ms, key=lambda m: m["start_time"])
     roll = []
@@ -336,11 +373,17 @@ def analyze_mode(ms, agg_mode, parsed, heroes, mode):
 
     # --- автоматические находки (надежно: p < 0.01 и n >= 15)
     findings = []
+    rec_lookup = {(t["title"], r["group"]): r for t in recent["tables"] for r in t["rows"]}
     for t in T:
         for r in t["rows"]:
             if r["p"] is not None and r["p"] < 0.01 and r["n"] >= 15 and abs(r["wr"] - base) >= 0.08:
-                findings.append({"table": t["title"], "group": r["group"], "n": r["n"], "wr": r["wr"], "base": base, "p": r["p"]})
-    return {"summary": summary, "tables": T, "heroes": hero_rows, "deaths": deaths, "history": history,
+                rr = rec_lookup.get((t["title"], r["group"]))
+                holds = None
+                if rr and rr["n"] >= 10:
+                    holds = ((rr["wr"] - rbase) * (r["wr"] - base) > 0) and abs(rr["wr"] - rbase) >= 0.05
+                findings.append({"table": t["title"], "group": r["group"], "n": r["n"], "wr": r["wr"], "base": base, "p": r["p"],
+                                 "recent_n": rr["n"] if rr else None, "recent_wr": rr["wr"] if rr else None, "holds_recent": holds})
+    return {"summary": summary, "recent": recent, "tables": T, "heroes": hero_rows, "deaths": deaths, "history": history,
             "parsed": parsed_block, "series": series, "findings": findings}
 
 
@@ -362,7 +405,13 @@ def main():
         modes = {}
         for mode in ("ranked", "normal", "turbo"):
             ms = [m for m in all_ms if mode_of(m) == mode]
-            res = analyze_mode(ms, agg.get(mode), parsed, heroes, mode)
+            try:
+                res = analyze_mode(ms, agg.get(mode), parsed, heroes, mode)
+            except Exception as e:  # один сломанный режим не должен валить остальных
+                import traceback
+                traceback.print_exc()
+                print(acc, mode, "ошибка анализа:", e)
+                res = None
             if res:
                 modes[mode] = res
         save(os.path.join(pdir, "analysis.json"), {"account_id": int(acc), "generated": int(time.time()), "profile": agg.get("profile"),
