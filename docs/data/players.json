@@ -1,0 +1,77 @@
+{
+ "players": [
+  {
+   "slug": "cc1",
+   "account_id": 98795702,
+   "steam_id64": "76561198059061430",
+   "name": "cc1",
+   "avatar": "https://avatars.steamstatic.com/7c8d18dd73c402f870a6b4fe3cb6f2fb4240a06b_full.jpg",
+   "rank_tier": 43,
+   "rank": "Archon 3",
+   "matches": 200,
+   "ranked": 131,
+   "parsed": 0,
+   "exposed": true,
+   "last_match": 1794085798
+  },
+  {
+   "slug": "voditel",
+   "account_id": 343241600,
+   "steam_id64": "76561198303507328",
+   "name": "Водитель по губам",
+   "avatar": null,
+   "rank_tier": 55,
+   "rank": "Legend 5",
+   "matches": 200,
+   "ranked": 142,
+   "parsed": 0,
+   "exposed": true,
+   "last_match": 1794091975
+  },
+  {
+   "slug": "trf",
+   "account_id": 62362574,
+   "steam_id64": "76561198022628302",
+   "name": "TRf",
+   "avatar": null,
+   "rank_tier": null,
+   "rank": "без ранга",
+   "matches": 0,
+   "ranked": 0,
+   "parsed": 0,
+   "exposed": false,
+   "last_match": null
+  },
+  {
+   "slug": "hiv",
+   "account_id": 180291929,
+   "steam_id64": "76561198140557657",
+   "name": "HIV",
+   "avatar": null,
+   "rank_tier": 32,
+   "rank": "Crusader 2",
+   "matches": 0,
+   "ranked": 0,
+   "parsed": 0,
+   "exposed": false,
+   "last_match": null
+  },
+  {
+   "slug": "cc1-second",
+   "account_id": 64100105,
+   "steam_id64": "76561198024365833",
+   "name": "сс1",
+   "avatar": null,
+   "rank_tier": 41,
+   "rank": "Archon 1",
+   "matches": 0,
+   "ranked": 0,
+   "parsed": 0,
+   "exposed": false,
+   "last_match": null
+  }
+ ],
+ "updated": 1794248556,
+ "requests": 0,
+ "errors": 0
+}
