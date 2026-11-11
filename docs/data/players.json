@@ -8,11 +8,11 @@
    "avatar": "https://avatars.steamstatic.com/7c8d18dd73c402f870a6b4fe3cb6f2fb4240a06b_full.jpg",
    "rank_tier": 43,
    "rank": "Archon 3",
-   "matches": 6969,
-   "ranked": 1535,
-   "parsed": 11,
+   "matches": 6970,
+   "ranked": 1536,
+   "parsed": 12,
    "exposed": true,
-   "last_match": 1794085798
+   "last_match": 1794341317
   },
   {
    "slug": "voditel",
@@ -22,11 +22,11 @@
    "avatar": "https://avatars.steamstatic.com/dcf04adfc2268bddb0eb45290b6528b747fe9b51_full.jpg",
    "rank_tier": 55,
    "rank": "Legend 5",
-   "matches": 3409,
-   "ranked": 1332,
-   "parsed": 22,
+   "matches": 3410,
+   "ranked": 1333,
+   "parsed": 23,
    "exposed": true,
-   "last_match": 1794091975
+   "last_match": 1794341317
   },
   {
    "slug": "trf",
@@ -71,7 +71,7 @@
    "last_match": null
   }
  ],
- "updated": 1794345757,
+ "updated": 1794378898,
  "requests": 98,
  "errors": 0
 }
