@@ -48,8 +48,8 @@
    "steam_id64": "76561198140557657",
    "name": "HIV",
    "avatar": "https://avatars.steamstatic.com/a481c9e72d4cdabb208b9647eed1ddf3a7770616_full.jpg",
-   "rank_tier": 34,
-   "rank": "Crusader 4",
+   "rank_tier": 35,
+   "rank": "Crusader 5",
    "matches": 0,
    "ranked": 0,
    "parsed": 0,
@@ -71,7 +71,7 @@
    "last_match": null
   }
  ],
- "updated": 1795347214,
- "requests": 99,
- "errors": 0
+ "updated": 1795377058,
+ "requests": 96,
+ "errors": 87
 }
