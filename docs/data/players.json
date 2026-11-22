@@ -8,11 +8,11 @@
    "avatar": "https://avatars.steamstatic.com/7c8d18dd73c402f870a6b4fe3cb6f2fb4240a06b_full.jpg",
    "rank_tier": 43,
    "rank": "Archon 3",
-   "matches": 6981,
-   "ranked": 1538,
-   "parsed": 14,
+   "matches": 6985,
+   "ranked": 1539,
+   "parsed": 15,
    "exposed": true,
-   "last_match": 1795123254
+   "last_match": 1795301248
   },
   {
    "slug": "voditel",
@@ -22,11 +22,11 @@
    "avatar": "https://avatars.steamstatic.com/dcf04adfc2268bddb0eb45290b6528b747fe9b51_full.jpg",
    "rank_tier": 55,
    "rank": "Legend 5",
-   "matches": 3421,
-   "ranked": 1335,
-   "parsed": 25,
+   "matches": 3425,
+   "ranked": 1336,
+   "parsed": 26,
    "exposed": true,
-   "last_match": 1795123254
+   "last_match": 1795301248
   },
   {
    "slug": "trf",
@@ -36,20 +36,20 @@
    "avatar": "https://avatars.steamstatic.com/1b06b7f2f783f15c805eab0a7da76371e207457c_full.jpg",
    "rank_tier": 51,
    "rank": "Legend 1",
-   "matches": 3352,
-   "ranked": 286,
-   "parsed": 16,
+   "matches": 3356,
+   "ranked": 287,
+   "parsed": 17,
    "exposed": true,
-   "last_match": 1794954851
+   "last_match": 1795301248
   },
   {
    "slug": "hiv",
    "account_id": 180291929,
    "steam_id64": "76561198140557657",
-   "name": "hiv",
-   "avatar": null,
-   "rank_tier": null,
-   "rank": "без ранга",
+   "name": "HIV",
+   "avatar": "https://avatars.steamstatic.com/a481c9e72d4cdabb208b9647eed1ddf3a7770616_full.jpg",
+   "rank_tier": 34,
+   "rank": "Crusader 4",
    "matches": 0,
    "ranked": 0,
    "parsed": 0,
@@ -60,10 +60,10 @@
    "slug": "cc1-second",
    "account_id": 64100105,
    "steam_id64": "76561198024365833",
-   "name": "cc1-second",
-   "avatar": null,
-   "rank_tier": null,
-   "rank": "без ранга",
+   "name": "сс1",
+   "avatar": "https://avatars.steamstatic.com/6d852b5412c2fe21324c7211c74fb06651344d76_full.jpg",
+   "rank_tier": 42,
+   "rank": "Archon 2",
    "matches": 0,
    "ranked": 0,
    "parsed": 0,
@@ -71,7 +71,7 @@
    "last_match": null
   }
  ],
- "updated": 1795313863,
- "requests": 96,
- "errors": 49
+ "updated": 1795347214,
+ "requests": 99,
+ "errors": 0
 }
