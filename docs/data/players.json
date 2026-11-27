@@ -22,11 +22,11 @@
    "avatar": "https://avatars.steamstatic.com/dcf04adfc2268bddb0eb45290b6528b747fe9b51_full.jpg",
    "rank_tier": 55,
    "rank": "Legend 5",
-   "matches": 3429,
-   "ranked": 1340,
+   "matches": 3430,
+   "ranked": 1341,
    "parsed": 30,
    "exposed": true,
-   "last_match": 1795732898
+   "last_match": 1795811734
   },
   {
    "slug": "trf",
@@ -71,7 +71,7 @@
    "last_match": null
   }
  ],
- "updated": 1795782770,
- "requests": 96,
+ "updated": 1795822328,
+ "requests": 100,
  "errors": 0
 }
