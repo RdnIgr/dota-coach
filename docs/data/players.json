@@ -8,11 +8,11 @@
    "avatar": "https://avatars.steamstatic.com/7c8d18dd73c402f870a6b4fe3cb6f2fb4240a06b_full.jpg",
    "rank_tier": 43,
    "rank": "Archon 3",
-   "matches": 6985,
-   "ranked": 1539,
-   "parsed": 15,
+   "matches": 6990,
+   "ranked": 1543,
+   "parsed": 19,
    "exposed": true,
-   "last_match": 1795301248
+   "last_match": 1795732898
   },
   {
    "slug": "voditel",
@@ -22,11 +22,11 @@
    "avatar": "https://avatars.steamstatic.com/dcf04adfc2268bddb0eb45290b6528b747fe9b51_full.jpg",
    "rank_tier": 55,
    "rank": "Legend 5",
-   "matches": 3425,
-   "ranked": 1336,
-   "parsed": 26,
+   "matches": 3429,
+   "ranked": 1340,
+   "parsed": 30,
    "exposed": true,
-   "last_match": 1795301248
+   "last_match": 1795732898
   },
   {
    "slug": "trf",
@@ -36,11 +36,11 @@
    "avatar": "https://avatars.steamstatic.com/1b06b7f2f783f15c805eab0a7da76371e207457c_full.jpg",
    "rank_tier": 51,
    "rank": "Legend 1",
-   "matches": 3356,
-   "ranked": 287,
-   "parsed": 17,
+   "matches": 3361,
+   "ranked": 291,
+   "parsed": 21,
    "exposed": true,
-   "last_match": 1795301248
+   "last_match": 1795732898
   },
   {
    "slug": "hiv",
@@ -71,7 +71,7 @@
    "last_match": null
   }
  ],
- "updated": 1795712419,
- "requests": 96,
+ "updated": 1795744063,
+ "requests": 108,
  "errors": 0
 }
