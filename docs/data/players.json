@@ -24,7 +24,7 @@
    "rank": "Legend 5",
    "matches": 3430,
    "ranked": 1341,
-   "parsed": 30,
+   "parsed": 31,
    "exposed": true,
    "last_match": 1795811734
   },
@@ -71,7 +71,7 @@
    "last_match": null
   }
  ],
- "updated": 1795822328,
- "requests": 100,
+ "updated": 1795852595,
+ "requests": 97,
  "errors": 0
 }
